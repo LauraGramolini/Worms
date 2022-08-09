@@ -1,0 +1,29 @@
+RSTUDIO ENVIRONMENT SAVING##################################
+
+One of the most annoying "features" of R studio (and the default windows R environment) is that it saves the workspace automatically (in a hidden file .Rdata). Upon restarting R in that folder it will load everything (all the objects you had produced in the previous session) from this file. (edited) 
+12:05
+This behaviour is obviously hideous (it might load object of which you don't know how  - by which code - they were produced) and I have disabled this for so long that I wasn't aware anymore that it's still the default in Rstudio.
+12:05
+Disabling in RStudio
+To disable this save behavior in RStudio, do the following:
+With RStudio running, choose Tools > Global Options from the menus.
+In the Options dialog, change the value for Save workspace to .RData on exit to Never.
+Click OK to apply the change and close the dialog.
+Now R will never save or prompt you to save your workspace from RStudio unless you manually change this option.
+12:08
+I find it quite shocking, absolutely terrifying that people might have developed the habbit of using somehow automatically saved objects which they are not so sure about anymore how they have been created or modified. This will make your code break!
+12:08
+If you have objects you want to save you do: saveRDS(obj, file)
+and you load it with  obj <- readRDS(file) when you need them again (e.g. in the next script in a pipeline) (edited) 
+12:09
+You do this for every object you want to save and reload. You write this code into your scripts and make them reproducible by doing so!
+12:12
+MINIMIZE how many objects you save! It's better to re-run code if it's fast enough (to not be annoying).
+12:13
+If you MINIMIZE the amount of data written and read to files you get a better idea of the data-flow in your pipelines. Most scripts should need only one or two data objects to be loaded (or previous scripts in a pipeline be executed if it's fast).
+12:16
+Apropos pipelines: 1_scriptDoingThis 2_scriptDoingThat ... etc. is a nice way of organizing your work. 2_scriptDoingThat could then have either loadRDS or source at its beginning to load the object(s, max 2-3) created in  1_scriptDoingThis (edited) 
+
+####################################################################################################
+
+
