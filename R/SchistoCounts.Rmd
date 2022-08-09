@@ -9,84 +9,61 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-I'M PLAYING WITH GITHUB CAUSE I DON'T KNOW HOW TO USE IT
-
 ```{r}
 library(Rsubread)
 library(tidyverse)
 library(dplyr)
 ```
 
+I'm setting the directory to where my Bam files are and create a list to give to FeatureCounts, together with the annotation file
 ```{r}
 setwd("/SAN/Lauras_territory/Novaseq/schisto/AllschistoBAM/")
 schisto_files <- list.files(".", pattern = "[.]bam")
 SchistoFCounts <- featureCounts(files =schisto_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/schisto_genome/schisto_annotation.gtf",  nthreads = 40)
 ```
-Export counts as a dataframe:
+
+Export counts as a dataframe in another object cause I want to see:
 ```{r}
 SScountdf <- as.data.frame(SchistoFCounts$counts)
 ```
-And save it:
+
+And save it, cause you never know:
 ```{r}
 write.table(SScountdf, file = "~/data/SScountdf")
 ```
 
-##############################Some sanity checks, to improve, weird to work with count matrix?????#############################
-Try to build a graph, for now only one sample at the time, some basic skills missing ...
+Now I have the FeatureCounts object containing the count matrix
+
+
+
+#############################################Some sanity checks to play##########################################################
+Try to build a graph, for now only one sample at the time
 ```{r}
 ggplot(SScountdf) +
-  geom_histogram(aes(x = ConditionA03.bam), stat = "bin", bins = 200) +
+  geom_histogram(aes(x = ConditionA03), stat = "bin", bins = 200) +
   xlab("Raw expression counts") +
   ylab("Number of genes")+
   scale_x_log10()
 
 ```
 
+Here we can build a graph with several samples for the same condition
 ```{r}
 ggplot(pivot%>%
-         filter(grepl("ConditionA", name)))+
+         filter(grepl("ConditionL", name)))+
   geom_histogram(aes(x = value), stat = "bin", bins = 200) +
   xlab("Raw expression counts") +
   ylab("Number of genes")+
   scale_x_log10()+
   facet_wrap(~name)
-#scales=freey
 
 ```
-How to set a threshold for removing?
-Check the normalized in the same way
+
+We might try to check the normalized in the same way and compare ...
 
 
-
-
-
-
-
-
-
-
-
-Check the count of reads for each samples to relate with the raw reads
-```{r}
-SScountsums <- as.data.frame(colSums(SScountdf))
-SScountsums
-```
-
-Here we can add columns with the raw count of reads to see how much was mapped and assigned
-
-
-
-
-
-
-
-
-
-
-
-
-################################################Going on with pipeline#############################################
-Load the metadata for schisto
+################################################Going on with DEseq pipeline####################################################
+Load the metadata for Schistocephalus
 
 ```{r}
 SScolData <- read.table("~/data/schistoData.txt")
@@ -100,22 +77,29 @@ head(SchistoFCounts$counts)
 ```{r}
 SScolData
 ```
-These two files need to have the same name so we have to remove the .bam from SchistoFCounts
+
+These two files need to have the samples named in the same way so we have to remove the .bam from SchistoFCounts
 ```{r}
 colnames(SchistoFCounts$counts) <- sub(".bam", "", colnames(SchistoFCounts$counts))
 head(SchistoFCounts$counts)
 ```
 
 Loading the tables in DEseq2
-Should I put here the design already? Should we run it with Stage + Host or Condition and then look how it is made of? Should we also add Stage:Host? And the other variables? Like pop, dual-seq, double infection?
-
-
+I would put here the design already: ~ Host so then we run the model directly
+Also we put Free as reference level and we have to specify it in the colData loading
 ```{r}
-SSDEseq <- DESeqDataSetFromMatrix(countData = SchistoFCounts$counts, colData = SScolData, design = ~ Condition) 
-SSDEseq
+str(SScolData)
+SScolData$Host <- as.factor(SScolData$Host) %>% 
+  relevel(ref="Free")
+SSDEseq <- DESeqDataSetFromMatrix(
+  countData = SchistoFCounts$counts,
+  colData = SScolData,
+  design= ~ Host)
+
 ```
-Let's keep only the genes counted at least 10 times at least in one sample.
-For now ok, but then decide the threshold base on a reason, why 10? why 20? For the sum of the samples? At least how many? Make several try
+
+Let's remove the genes that are counted less than 10 times in all the samples
+For now ok, but then decide the threshold base on a reason, why 10? why 20? For the sum of the samples? At least how many? Make several try. Always do things that you can justify
 ```{r}
 keep <- rowSums(counts(SSDEseq)) >= 10
 SSDEseq <- SSDEseq[keep,]
@@ -129,8 +113,10 @@ library("vsn")
 meanSdPlot(SSmatrix, ranks = TRUE)
 ```
 
-They are not, and this is normal for RNA-seq data, cause lowly expressed genes will have a low range of variance, and this will reflect on the PCA or other explorative analyis, so we need to transform the data:
-
+They are not, and this is normal for RNA-seq data, cause lowly expressed genes will have a low range of variance, and this will reflect on the PCA or other exploratory analysis, so we need to transform the data:
+I'm gonna apply the vst transformation cause I have more tha 50 samples and because ...
+And I will run it blind so the variance doesn't get overestimated by the sample size
+(look into it)
 ```{r}
 SSDEseqvst <- vst(SSDEseq, blind = TRUE)
 head(assay(SSDEseqvst), 3)
@@ -141,9 +127,8 @@ Let's see how it looks now
 ```{r}
 meanSdPlot(assay(SSDEseqvst), rank=TRUE)
 ```
-SScountsums <- as.data.frame(colSums(SScountdf))
-SScountsums
-And plotting 2 genes
+
+And plotting 2 random genes:
 ```{r}
 SSvstdf <- as_data_frame(assay(SSDEseqvst)[, 1:2]) %>% mutate(transformation = "vst")
 colnames(SSvstdf)[1:2] <- c("x", "y") 
@@ -152,36 +137,14 @@ SSvstdf$transformation <- factor(SSvstdf$transformation, levels = lvls)
 ggplot(SSvstdf, aes(x=x, y=y))+geom_hex(bins=80)+
   coord_fixed()
 ```
-I'm not sure how to interprete this...
+I'm not sure how to interpret this... I'm not too convinced is good enough, but this is only for preliminary visualization
 
-
-Now let'S try the other one (rlog)
-
-```{r}
-SSDEseqrld <- rlog(SSDEseq, blind = TRUE)
-meanSdPlot(assay(SSDEseqrld), rank=TRUE)
-```
-
-
-```{r}
-SSrlddf <- as_data_frame(assay(SSDEseqrld)[, 1:2]) %>% mutate(transformation = "vst")
-colnames(SSrlddf)[1:2] <- c("x", "y") 
-lvls <- c("vst")
-SSrlddf$transformation <- factor(SSrlddf$transformation, levels = lvls)
-ggplot(SSrlddf, aes(x=x, y=y))+geom_hex(bins=80)+
-  coord_fixed()
-```
-
-
-Not sure which transformation to take, for now I chose the vst and go on with other visualizations
-
-Let's calculate the distance matrix:
+Let's calculate the distance matrix between samples and plot it to have an idea of the grouping:
 ```{r}
 SSDist <- dist(t(assay(SSDEseqvst)))
-SSDist
 ```
 
-Then we use it to build a heatmap between samples:
+With an heatmap for example:
 
 ```{r}
 library("pheatmap")
@@ -195,18 +158,12 @@ pheatmap(SSDist,
          clustering_distance_cols = SSDist,
          col = colors)
 ```
-We would need an indication of what they are ...
-
-
-And the PCA:
-
+We would need an indication of what they are ... like names, but it's easier just look at the PCA:
 ```{r}
 plotPCA(SSDEseqvst, intgroup=("Condition"))
 ```
 
-
-Let's check more:
-
+Let's check more details on the samples:
 ```{r}
 SSPCAdata <- plotPCA(SSDEseqvst, intgroup=c("Host", "Stage"), returnData=TRUE) ##ReturnData means do not plot but return them
 SSpercentVar <- round(100*attr(SSPCAdata, "SSpercentVar")) ####Why is this empty?
@@ -217,17 +174,17 @@ ggplot(SSPCAdata, aes(PC1, PC2, color=Stage, shape=Host))+
   coord_fixed()
 ```
 
-Nice PCA plot for poster:
+Let's make it nice for the poster:
 ```{r}
 SSPCAdata <- plotPCA(SSDEseqvst, intgroup=c("Host", "Stage"), returnData=TRUE) ##ReturnData means do not plot but return them
-SSpercentVar <- round(100*attr(SSPCAdata, "SSpercentVar")) ####THIS has been replaced by the rows below before he plot
 
 SSntop=500
   SSv <- rowVars(assay(SSDEseqvst))
-  SSselect <- order(SSv, decreasing = TRUE)[seq_len(min(ntop,
-                                                     length(v)))]
-  SSpca <- prcomp(t(assay(SSDEseqvst)[SSselect, ]))
-  SSpercentVar <- SSpca$sdev^2/sum(SSpca$sdev^2)
+  SSselect <- order(SSv, decreasing = TRUE)[seq_len(min(SSntop,
+                                                     length(SSv)))]
+ ############## SSpca <- prcomp(t(assay(SSDEseqvst)[SSselect, ])) ###This is not necessary if I use SSPCAdata. Are these equivalent? I think so
+  
+  SSpercentVar <- SSPCAdata$sdev^2/sum(SSPCAdata$sdev^2)
   SSpercentVar <- round(SSpercentVar[1:2]*100,0)
 
   
@@ -248,6 +205,8 @@ SSpcaplot <- ggplot(SSPCAdata, aes(PC1, PC2, color=Stage, shape=Host))+
   theme_bw()+
   theme(text = element_text(size = 15))+
   theme(panel.grid = element_blank(), panel.border = element_blank(), axis.line=element_line(), panel.background = element_rect(fill="transparent"), plot.background = element_rect(fill = "transparent"), legend.background = element_rect("transparent"), legend.key = element_rect(fill="transparent"))
+
+############To save the pics:
 #tiff(filename = "SSpca.tiff", width = 5, height = 4, units = "in", res = 1200, compression ="lzw")+
 #png(filename = "SSpca.png", width = 5, height = 4, units = "in", res = 1200)  
 
@@ -268,8 +227,7 @@ ggplot(SSmds, aes(x = `1`, y = `2`, color = Stage, shape = Host, size=Pop)) +
 
 ```
 
-Today I want to play, tomorrow I study...
-
+To visualize some hetmap as additional explorative analysis:
 ```{r}
 library("genefilter")
 SStopvargenes <- head(order(rowVars(assay(SSDEseqvst)), decreasing = TRUE), 10) ##Select the 10 genes that bring more variance
@@ -278,74 +236,41 @@ SSmat <- SSmat - rowMeans(SSmat)
 SS20genes <- as.data.frame(colData(SSDEseqvst)[,c("Stage", "Host")]) ##I can play with this filtering out the other pop and the samples from Hebert to see how it changes
 pheatmap(SSmat, annotation_col = SS20genes)
 ```
-Ok, but what happens with the rld?
 
+The design is already in the object (~ Host) and with the Free living stage as ref level/intercept
+Let's try to fit this model
 ```{r}
-SStopvargenesrld <- head(order(rowVars(assay(SSDEseqrld)), decreasing = TRUE), 20) ##Select the 20 genes that bring more variance
-SSmatrld <- assay(SSDEseqrld)[SStopvargenesrld, ]
-SSmatrld <- SSmatrld - rowMeans(SSmatrld)
-SS20genesrld <- as.data.frame(colData(SSDEseqrld)[,c("Host", "Stage")])
-pheatmap(SSmatrld, annotation_col = SS20genes)
-
+SSDEhost <- DESeq(SSDEseq)
+SSDEhost
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-The design is already in the object (~Condition)
-We will try also: Stage + Host, Stage + Host + Stage:host(condition?)
+And then in the results I can pull out the comparisons I want. It should recalculate each time the different column. Check on that and study the DE command!!!
 ```{r}
-SSDEAnalysis <- DESeq(SSDEseq)
-SSDEAnalysis
-```
-```{r}
-SSres <- results(SSDEAnalysis)
+SSres <- results(SSDEhost)
 SSres
-??DEseq2
 ```
+By the default it shows a random comparifon
 
-
+Let's see the names of the models (?)
 ```{r}
-str(SScolData)
-SScolData$Condition <- relevel(as.factor(SScolData$Condition))
-DEseqtry <- DESeqDataSetFromMatrix(
-  countData = SchistoFCounts$counts,
-  colData = SScolData,
-  design= ~ Condition)
-DEtry <- DESeq(DEseqtry)
-results(DEtry)
+resultsNames(SSDEhost)
 ```
-
+They are all against the free stage that I put with as reference, but by changing the results specification I can make the other comparisons:
 ```{r}
-resultsNames(DEtry)
-```
-```{r}
-AB <- results(DEtry, name="Condition_ConditionB_vs_ConditionA")
+<- results()
 summary(AB)
-```
 
-```{r}
 BC <- results(DEtry, c("Condition", "ConditionB", "ConditionC")) ###c() is the contrast
 summary(BC)
-```
 
-
-```{r}
 EL <- results(DEtry, c("Condition", "ConditionE", "ConditionL"))
 summary(EL)
 ```
+
+
 ```{r}
 ?results
 ```
-
 
 
 
@@ -366,9 +291,7 @@ plotMA(SSres)
 If we adjust the p-value that's gonna change the color. Adjusted p-value for selecting relevant genes!
 
 
-
-
-But this comparison we did so far it's only between the first and the last condition. Do it multiple and then test the different models
+What's the value given from the model?
 
 
 
