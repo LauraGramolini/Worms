@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+I'M PLAYING WITH GITHUB CAUSE I DON'T KNOW HOW TO USE IT
+
 ```{r}
 library(Rsubread)
 library(tidyverse)
