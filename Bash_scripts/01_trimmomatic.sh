@@ -2,6 +2,7 @@
 
 ###
 #I've used trimmomatic to trim my raw reads as preprocessing before assemblying the de novo transcriptomes
+#I've used this script for Cmallanus and the copepod raw reads
 #This script is called by parallel so my samples are processed all together. It produces 4 outputs (2 paired and 2 unpaired), and we need the Paired pair for downstream
 ####
 
