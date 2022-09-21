@@ -1,0 +1,31 @@
+---
+title: "SchistoDE"
+author: "Laura Gramolini"
+date: '2022-07-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Rsubread)
+library(tidyverse)
+library(dplyr)
+```
+
+I'm setting the directory to where my .Bam files are and create a list to give to FeatureCounts, together with the annotation file
+```{r}
+setwd("/SAN/Lauras_territory/Novaseq/schisto/AllschistoBAM/")
+schisto_files <- list.files(".", pattern = "[.]bam")
+SchistoFCounts <- featureCounts(files =schisto_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/schisto_genome/schisto_annotation.gtf",  nthreads = 40)
+```
+
+Export counts as a dataframe in another object cause and save it as inpit for next analysis:
+```{r}
+SScountdf <- as.data.frame(SchistoFCounts$counts)
+write.table(SScountdf, file = "~/GitHub/Worms/data/SScountdf.csv")
+```
+
+Now we have the Schistocephalus count matrix saved as csv.
