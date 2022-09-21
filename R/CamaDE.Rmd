@@ -16,10 +16,11 @@ library(tidyverse)
 
 We create the list of the bam files and run FeatureCounts with the multimapping option
 ```{r}
-setwd("/SAN/Lauras_territory/Novaseq/cama/AllBams/")
+setwd("/SAN/Lauras_territory/Novaseq/cama/AllBamscorset/")
 cama_files <- list.files(".", pattern = "[.]bam")
-CamaFCounts <- featureCounts(files =cama_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/Novaseq/cama/denovo/camadenovo_annotation.gtf", countMultiMappingReads=TRUE, fraction=TRUE, nthreads = 40)
+CamaFCountsnogtf <- featureCounts(files =cama_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/Novaseq/cama/denovo/camadenovo_annotation.gtf", countMultiMappingReads=TRUE, fraction=TRUE, nthreads = 40)
 ```
+
 Then round (up or down) the counts:
 ```{r}
 CamaFCounts$counts[] <- round(CamaFCounts$counts)
@@ -27,11 +28,20 @@ CamaFCounts$counts
 CLcountdf <- as.data.frame(CamaFCounts$counts) ###Export the matrix
 write.table(CLcountdf, file = "~/data/CLcountdf")
 ```
+
+```{r}
+sum(CLcountdf$ConditionB2.bam)
+```
+
+
+
+
+
 ###############################################Some sanity checks on the matrix ###########################################
 First plotting
 ```{r}
-ggplot(CLcountdf) +
-  geom_histogram(aes(x = ConditionA1.bam), stat = "bin", bins = 200) +
+ggplot(CLcountdf%>%filter(ConditionB1.bam > 10)) +
+  geom_histogram(aes(x = ConditionB1.bam), stat = "bin", bins = 200) +
   xlab("Raw expression counts") +
   ylab("Number of genes")+
   scale_x_log10()
@@ -71,7 +81,7 @@ Should I put here the design already? Should we run it with Stage + Host or Cond
 
 
 ```{r}
-CLDEseq <- DESeqDataSetFromMatrix(countData = CamaFCounts$counts, colData = CLcolData, design = ~ Condition) 
+CLDEseq <- DESeqDataSetFromMatrix(countData = CamaFCounts$counts, colData = CLcolData, design = ~ Host) 
 CLDEseq
 ```
 Let's keep only the genes counted at least 10 times at least in one sample.
@@ -187,9 +197,9 @@ CLpcaplot <- ggplot(CLPCAdata, aes(PC1, PC2, color=Stage, shape=Host, size=Sex))
   #png(filename = "CLpca.png", width = 5, height = 4, units = "in", res = 1200)
 
 
-ggsave(CLpcaplot, 
-       filename = "CLpca.png",
-       bg = "transparent")
+#ggsave(CLpcaplot, 
+#       filename = "CLpca.png",
+#       bg = "transparent")
 
 ```
 
@@ -204,13 +214,13 @@ ggsave(CLpcaplot,
 
 
 
-Try to add time as covariate in the PCA ... work in progress
-```{r}
+##########Try to add time as covariate in the PCA ... work in progress
+###```{r}
 install.packages("DEGreport package")
 if (!require("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 plotPCACovariates(CLPCAdata, fdr = 0.1)
-```
+##```
 
 
 Multi-dimensional-scaling MDS:
