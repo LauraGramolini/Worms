@@ -52,23 +52,22 @@ resultsM2 <- results(StageM2)
 ```
 
 
-Load the data with Host and Stage against the intercept: M3
+Load the data with Host and Stage interaction (Condition) against the intercept: M3
 
 ```{r}
 M3 <- DESeqDataSetFromMatrix(
   countData = SchistoFCounts$counts,
   colData = SScolData,
-  design= ~ Host + Stage)
+  design= ~ Condition)
 ```
 
 Now Test the M3 model (Host + Stage) against the intercept
 
 ```{r}
-HostStageM3 <- DESeq(M3, test="LRT", reduced = ~ Host + Stage)
+HostStageM3 <- DESeq(M3, test="LRT", reduced = ~ Condition)
 resultsM3 <- results(ConditionM3)
 ```
-
-#######This one doesn't work###
+################Solve this
 
 Load the data with Design condition. It doesn't work, we have to first create the matrix: condmatrix
 ```{r}
@@ -122,7 +121,6 @@ adjp <- dplyr::lst(int_host, int_stage, host_condition, stage_condition) %>%
   bind_rows(.id = "Model")
 ```
 
-Left here
 
 Plot the adjpvalues
 
@@ -133,8 +131,33 @@ colSums(apply(adjp, 2, "<", 0.05), na.rm =T)
 
 
 ```{r}
-ggplot(modelspvalues) +
-  geom_density(aes(x=m1), stat="density", fill="blue", kernel="gaussian")+
+ggplot(adjp, aes(x=padj, color = Model)) + 
+         geom_density()
+  
+```
+
+```{r}
+filter(adjp, !is.na(padj)) %>%
+ggplot(aes(x=padj, color = Model)) + 
+         geom_histogram()
+```
+
+Pvalues Plots, fail
+
+Try to set a threshold to filter the FDR
+```{r}
+sum(adjp$padj < 0.1, na.rm=TRUE)
+```
+
+```{r}
+
+```
+
+
+
+
+
+geom_density(aes(x=m1), stat="density", fill="blue", kernel="gaussian")+
   geom_density(aes(x=m2), stat="density", fill="yellow", kernel="gaussian")+
   geom_density(aes(x=m3), stat="density", fill="black", kernel="gaussian")+
   geom_density(aes(x=m4), stat = "density", fill="pink", kernel="gaussian")+
@@ -146,48 +169,6 @@ ggplot(modelspvalues) +
   ylim(0, 60)
 
 colSums(apply(adjp, 2, "<", 0.05), na.rm =T)
-
-```
-
-```{r}
-ggplot(modelspvalues) +
-  geom_density(aes(x=m1), stat="density", fill="blue", kernel="gaussian")+
-  geom_density(aes(x=m2), stat="density", fill="yellow", kernel="gaussian")+
-  geom_density(aes(x=m3), stat="density", fill="black", kernel="gaussian")+
-  geom_density(aes(x=m4), stat = "density", fill="pink", kernel="gaussian")+
-  geom_density(aes(x=m4.1), stat="density", fill="red", kernel="gaussian")+
-  geom_density(aes(x=m4.2), stat="density", fill="green", kernel="gaussian")+
-  xlab("p-values") +
-  ylab("count") +
-  scale_x_log10()
-  
-```
-
-
-```{r}
-ggplot(modelspvalues) +
-  geom_density(aes(x=m1), stat="density", color="green")+
-  geom_density(aes(x=m2), stat="density", color="yellow")+
-  geom_density(aes(x=m3), stat="density", color="red")+
-  geom_density(aes(x=m4), stat = "density", color="pink")+
-  geom_density(aes(x=m4.1), stat="density", color="blue")+
-  geom_density(aes(x=m4.2), stat="density", color="black")+
-  xlab("p-values") +
-  ylab("count") +
-  ylim(0, 60)+
-  xlim(0.004, 0.05)
-```
-
-
-```{r}
-as.data.frame(resultsM1) %>% 
-ggplot() +
-  geom_density(aes(x=pvalue), stat="density", fill="blue", kernel="gaussian") +
-  xlim(0, 0.00001)
-```
-
-
-
 ```{r}
 plotMA(resultsM1, ylim=c(-2,2))
 ```
