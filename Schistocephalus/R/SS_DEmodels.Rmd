@@ -122,6 +122,38 @@ adjp <- dplyr::lst(int_host, int_stage, host_condition, stage_condition) %>%
 ```
 
 
+Try here to test the condition model alone, and extract the differentially expressed genes
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Plot the adjpvalues
 
 
