@@ -1,0 +1,1010 @@
+---
+title: "Clustering of genes by expression profiles"
+output: 
+  github_document:
+    toc: true
+    df_print: kable
+---
+
+This script will cluster genes that have similar patterns of expression.
+
+```{r setup, include=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+options(stringsAsFactors = FALSE)
+theme_set(theme_bw())
+theme_update(panel.grid.minor = element_blank())
+```
+
+First, we load the gene count table for *Schistocephalus solidus*.
+
+```{r}
+gc <- read.table(file = "../data/SScountdf.csv", header = T, sep = " ") # gene count
+md <- read.delim(file = "../data/schistoData.txt", header = T) # metadata
+md <- select(md, -X)
+```
+
+
+There are ~20,000 genes from 72 samples.
+
+```{r}
+dim(gc)
+```
+
+```{r}
+# add gene name to data
+gc$gene <- row.names(gc)
+```
+
+# Filtering genes with low expression
+
+The data are in wide format with each column representing a sample and each row a gene. We will make the data long, so that each combination of gene and sample has its own row (i.e. all expression counts are in a single column).
+
+```{r}
+gc_long <- gc%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "counts")
+
+gc_long <- gc_long%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = gc_long$sample))
+```
+
+Here is the distribution of counts for every gene in every sample. In most samples in most genes, no expression is detectable. 
+
+```{r}
+ggplot(gc_long, aes(x = counts+.1)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10()
+```
+
+When we exclude the zeros (no expression), we see a bimodal distribution. In many genes in many samples, counts are low (peak at one) and probably just represent noise. The peak at higher values probably represents "real" expression, say greater than 10 counts per gene.
+
+```{r}
+ggplot(gc_long%>%filter(counts>0), aes(x = counts)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000, 10000))
+```
+The pattern is similar within each of our treatment groups. There is a fair amount of low-level expression that is probably just noise, and then from 10 counts or so there seems to be genuine expression. The separate lines are for the different samples. They show that the distribution of expression counts is similar across replicates.
+
+```{r}
+ggplot(gc_long, aes(x = counts)) +
+  geom_density(aes(group = sample), 
+               color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+We can take the median expression level for each gene in each condition and make the same plot. Clearly some of the low-level expression can be removed.
+
+```{r}
+gc_avg_by_condition <- gc_long%>%
+  group_by(grp, gene)%>%
+  summarise(median = median(counts),
+            min = min(counts))
+```
+```{r}
+ggplot(gc_avg_by_condition, aes(x = median)) +
+  geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+```{r}
+# for each gene take the maximum median expression level for any given condition
+gc_max_exp_in_at_least_cond <- gc_avg_by_condition%>%
+  group_by(gene)%>%
+  summarise(max_med_count = max(median))
+
+# ggplot(gc_max_exp_in_at_least_cond, aes(x = max_med_count)) +
+#   geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+#   scale_x_log10(breaks = c(1, 10, 100, 1000))
+```
+
+As an arbitrary threshold, we will remove genes that do not have a median expression level of at least 10 counts in at least one condition.
+
+```{r}
+low_genes <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+```
+
+Here is the percent of genes removed.
+
+```{r}
+round(length(low_genes)/length(gc$gene), 3)
+```
+
+Doubling the threshold for expression counts (20) only removes a few percent more.
+
+```{r}
+low_genes20 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 20)%>%.$gene
+round(length(low_genes20)/length(gc$gene), 3)
+```
+
+Similarly halving the threshold (5) would only add a few percent of the genes back into the analysis.
+
+```{r}
+low_genes5 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 5)%>%.$gene
+round(length(low_genes5)/length(gc$gene), 3)
+```
+
+Specifically, it would add this many genes back into the analysis:
+
+```{r}
+length(low_genes)-length(low_genes5)
+rm(low_genes20, low_genes5)
+```
+
+# All expressed genes
+
+```{r}
+# reduce gene count to expressed genes
+gc_expressed <- gc%>%
+  filter(!gene %in% low_genes)
+```
+
+Now that we have a list of expressed genes, we want to make them comparable before clustering. Specifically, expression counts are usually overdispersed, with the variance increasing with the mean. Therefore, for clustering, it is [recommended](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#data-transformations-and-visualization) to transform the data. The package `DESeq2` provides a function for this `vst`.
+
+```{r}
+gc_expressed_trans <- DESeq2::vst(
+  gc_expressed%>%select(-gene)%>%as.matrix()
+  )
+```
+
+The variance stabilizing transforms the data but it is kept on a log scale. That is, genes that are highly expressed should still have high values compared to lowly expressed genes. We can see this by plotting the gene-level relationship between mean expression before and after transformation. Looks similar to a log-transformation.
+
+```{r}
+mean_expr_untrans <- rowMeans(
+  gc_expressed%>%select(-gene)%>%as.matrix()
+)
+
+mean_expr_trans <- rowMeans(gc_expressed_trans)
+
+qplot(mean_expr_untrans, mean_expr_trans)
+rm(mean_expr_untrans, mean_expr_trans)
+```
+
+```{r}
+# put transformed values into long format
+gc_expressed_trans_long <- as.data.frame(gc_expressed_trans)
+gc_expressed_trans_long$gene <- row.names(gc_expressed_trans_long)
+gc_expressed_trans_long <- gc_expressed_trans_long%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "trans_counts")%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = sample))
+
+gc_expressed_trans_long <- gc_expressed_trans_long%>%
+  left_join(., 
+            md%>%select(Unique_name, func=Stage, host=Host),
+            by = c("sample" = "Unique_name")
+            )
+gc_expressed_trans_long <- gc_expressed_trans_long%>%
+  group_by(gene, grp, func, host)%>%
+  summarise(trans_counts = median(trans_counts))
+```
+
+We can already run a clustering analysis on this data, but we have to accept that this may simply lump together highly vs lowly expressed genes. With the transformed, scaled expression data, we calculate the euclidean distance between each gene. This distance matrix is then fed to the hierarchical clustering algorithm. The clustering method is 'complete linkage' which aims to put genes into similar clusters.
+
+```{r}
+gene_dist <- dist(gc_expressed_trans)
+gene_hclust <- hclust(gene_dist, method = "complete")
+
+# # plot dendogram
+# plot(gene_hclust, labels = FALSE)
+# abline(h = 10, col = "brown", lwd = 2)
+```
+
+After running the clustering algorithm, we would like to visualize the clusters. Let's take the first 10 clusters.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 10)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster. Some of the clusters have rather few genes:
+
+```{r}
+table(clusters$cluster)
+```
+
+We add the clusters to the transformed expression data for plotting.
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+The time-course of the gene expression is then plotted. We can see how the first four clusters just separate genes with different expression levels. Other clusters, though, distinguish genes that are up or down regulated at the beginning or end of the life cycle.
+
+```{r}
+x_ax_lab <- c("free", "cop-inf", "cop-grow", "cop-trans", "fish-inf", "fish-grow", "fish-grow2"
+, "fish-trans", "bird-inf", "bird-repr")
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = trans_counts)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = trans_counts), alpha = 0.1) +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+Clustering genes that just have high or low expression is not particularly interesting. Rather, we are more interested in patterns of co-expression across the life cycle, i.e. genes that show similar patterns of increasing and decreasing expression. Therefore, we scale the transformed expression values to a z-score for each gene.
+
+```{r}
+gc_expressed_trans <- gc_expressed_trans%>% 
+  # transpose the matrix so genes are as columns
+  t() %>% 
+  # apply scaling to each column of the matrix (genes)
+  scale() %>% 
+  # transpose back so genes are as rows again
+  t()
+```
+
+```{r}
+# put z-scores into long format
+gc_expressed_trans_long <- as.data.frame(gc_expressed_trans)
+gc_expressed_trans_long$gene <- row.names(gc_expressed_trans_long)
+gc_expressed_trans_long <- gc_expressed_trans_long%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "zscore")%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = sample))
+
+gc_expressed_trans_long <- gc_expressed_trans_long%>%
+  left_join(., 
+            md%>%select(Unique_name, func=Stage, host=Host),
+            by = c("sample" = "Unique_name")
+            )
+gc_expressed_trans_long <- gc_expressed_trans_long%>%
+  group_by(gene, grp, func, host)%>%
+  summarise(z_score = median(zscore))
+```
+
+With the transformed, scaled expression data, we again calculate the euclidean distance between each gene and give this distance matrix to the clustering algorithm.
+
+```{r}
+gene_dist <- dist(gc_expressed_trans)
+gene_hclust <- hclust(gene_dist, method = "complete")
+```
+
+```{r}
+# # plot dendogram
+# plot(gene_hclust, labels = FALSE)
+# abline(h = 10, col = "brown", lwd = 2)
+```
+
+After running the clustering algorithm, we would like to visualize the clusters. Let's again take the first 10 clusters.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 10)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster:
+
+```{r}
+table(clusters$cluster)
+```
+
+After adding the clusters to the transformed expression data, the time-course of expression is plotted.
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+Some trends are notable, such as clusters with increased expression in birds or the free stages.
+
+```{r}
+# x_ax_lab <- gc_expressed_trans_clusters%>%
+#   ungroup()%>%
+#   mutate(stage_name = paste0(substr(host, 1, 3), "-", substr(func, 1, 3)))%>%
+#   select(stage_name)%>%
+#   distinct()%>%.$stage_name
+x_ax_lab <- c("free", "cop-inf", "cop-grow", "cop-trans", "fish-inf", "fish-grow", "fish-grow2"
+, "fish-trans", "bird-inf", "bird-repr")
+```
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+## How many clusters
+
+Ten clusters was arbitrary. One way to estimate how many clusters there are in the data is to perform a faster clustering algorithm (kmeans) with different numbers of pre-defined clusters. Then, we can see how the variance within clusters decreases as a function of the number of clusters. Here is the pattern:
+
+```{r}
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(gc_expressed_trans, k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:25
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+qplot(k.values, wss_values) +
+  geom_line() + 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") 
+```
+
+In this "elbow plot", we are looking for a break in the line (an elbow) where additional clusters do not reduce within cluster variance much. Unfortunately, the trend looks fairly linear on a log-scale, in that each additional cluster decreases variance proportionally. We can plot this. Perhaps there is a break at 4 and 7 clusters. 
+
+```{r}
+qplot(k.values, wss_values) +
+  geom_line() + 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") +
+  scale_x_log10()
+```
+
+Thus, let's go back to our hierarchical clustering, but now take the top 7 clusters. 
+
+```{r}
+clusters <- cutree(gene_hclust, k = 7)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster:
+
+```{r}
+table(clusters$cluster)
+```
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+Some patterns are still evident, but it is not clear that reducing the number of clusters "improved" the patterns.
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+Taking much finer clusters also does not produce far clearer trends. Rather, some of the clusters are probably repeating.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 20)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+## Different clustering algorithms
+
+Let's try a different clustering algorithm. Cluster membership can vary quite a lot between clustering algorithms (see [here](https://cran.r-project.org/web/packages/dendextend/vignettes/Cluster_Analysis.html)). Instead of 'complete linkage', we'll try 'average', which makes a UPGMA tree from the distance matrix. And again we'll take the top 7 clusters.
+
+```{r}
+gene_hclust <- hclust(gene_dist, method = "average")
+# # plot dendogram
+# plot(gene_hclust, labels = FALSE)
+
+clusters <- cutree(gene_hclust, k = 7)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster - they are quite different from the 'complete linkage' algorithm:
+
+```{r}
+table(clusters$cluster)
+```
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+Changing the algorithm did not obviously result in better patterns.
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+We can also try the Ward method (`method = Ward.D2`), which minimizes the variance. We take 7 clusters as above.
+
+```{r}
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
+# # plot dendogram
+# plot(gene_hclust, labels = FALSE)
+
+clusters <- cutree(gene_hclust, k = 7)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes per cluster. Again, they diverge from the 'complete linkage' algorithm:
+
+```{r}
+table(clusters$cluster)
+```
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+The ward algorithm seems to yield clearer patterns, with sharper changes in expression at certain stage transitions.
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+Finally, we can also try the 'single linkage' method in `hclust`.
+
+```{r}
+gene_hclust <- hclust(gene_dist, method = "single")
+# # plot dendogram
+# plot(gene_hclust, labels = FALSE)
+
+clusters <- cutree(gene_hclust, k = 7)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+But this approach does not seem to work at all, as all genes are placed into one cluster.
+
+```{r}
+table(clusters$cluster)
+```
+
+# Differentially expressed genes
+
+One possible way to improve clustering would be to use only differentially expressed genes. Let's import the genes that differed in expression between at least two treatments.
+
+```{r}
+gc_degs <- read.csv(file = "../data/DEGsConditionM.csv", sep = " ")
+```
+
+Here are the number of DEGs at different levels of significance. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
+
+```{r}
+gc_degs%>%
+  summarize(p0.01 = sum(padj < 0.01),
+            p0.001 = sum(padj < 0.001),
+            p0.0001 = sum(padj < 0.0001),
+            p0.00001 = sum(padj < 0.00001))
+```
+
+```{r}
+# # number of genes at different cutoffs
+# gc_degs%>%
+#   arrange(desc(padj))%>%
+#   mutate(cum_dist = cume_dist(padj),
+#          genes = row_number())%>%
+#   ggplot(., aes(genes, padj)) +
+#   geom_line() +
+#   # scale_x_log10() +
+#   scale_y_log10(limits = c(0.00000001, 0.05))
+```
+
+Let's only take the genes that had p-values less than 0.0001.
+
+```{r}
+degs <- filter(gc_degs, padj < 0.0001)%>%row.names()
+```
+
+Here is an elbow plot, based on kmeans clustering, with those genes.
+
+```{r}
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(
+    gc_expressed_trans[row.names(gc_expressed_trans) %in% degs,],
+    k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 20
+k.values <- 1:20
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+qplot(k.values, wss_values) +
+  geom_line() + 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") 
+```
+To make the breaks clearer, here is the log-transformed plot. There are at least 3 clusters.
+
+```{r}
+qplot(k.values, wss_values) +
+  geom_line() + 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") +
+  scale_x_log10()
+```
+
+Now, we filter the count matrix to just the DEGs and we re-calculate the distance matrix, which is then fed into the clustering algorithm (`method = 'complete'`). 
+
+```{r}
+gene_dist <- dist(
+  # distance matrix for just DEGs
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs,
+    ]
+  )
+
+gene_hclust <- hclust(gene_dist, method = "complete")
+```
+
+Given the elbow plot, let's take the top 9 clusters.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 9)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster. There are none with very few genes.
+
+```{r}
+table(clusters$cluster)
+```
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+With the DEGs, the patterns are clearer, but some of the clusters still look somewhat redundant. The genes that were not assigned to a cluster (NA) are genes that are not strongly differentially expressed.
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+Some of the trends might be easier to assess if we plot the expression profiles for individual genes. Let's sample 100 random genes from each cluster and plot them. This uncovers a little more nuance within the clusters, such that we can see why some were clusters were split (e.g. more variance at some stages than others).
+
+```{r}
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=100)%>%.$gene
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+New patterns do not obviously emerge when the number of clusters is expanded.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 15)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=30)%>%.$gene
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.3) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+As we saw above, the ward clustering algorithm seemed to perform well. Thus, let's try that on the same subset of DEGs, taking the top 15 clusters.
+
+```{r}
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
+```
+
+```{r}
+clusters <- cutree(gene_hclust, k = 15)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=100)%>%.$gene
+```
+
+
+The variance within clusters is smaller than with the complete linkage approach, so it seems to be performing well. Some trends, though, may be redundant.
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+# *Clust* algorithm
+
+Alternatively, different clustering algorithms could be used. For example, instead of assigning all genes to clusters, this [algorithm](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1536-8) tries to extract clusters of genes with similar expression. I ran the algorithm (see commands [here](run_clust.txt)) on the full set of genes and the differentially expressed genes.
+
+```{r}
+# write files for clust - all genes
+gc_for_clust <- gc%>%
+  mutate(gene_id = gsub(pattern = "gene:", "", gene))%>%
+  select(gene_id, ConditionA01:ConditionL10)
+write_tsv(gc_for_clust, file = "clust_input/Schisto_gene_matrix.tsv")
+
+replicates_file_for_clust <- gc_long%>%
+  group_by(grp)%>%
+  summarise(sample_names = paste0(unique(sample), collapse = ", "))
+
+replicates_file_for_clust <- replicates_file_for_clust%>%
+  ungroup()%>%
+  mutate(data_name = "Schisto_gene_matrix.tsv")%>%
+  select(data_name, grp, sample_names)
+write_tsv(replicates_file_for_clust, file = "clust_input/replicates_file.tsv",
+          col_names = FALSE)
+```
+```{r}
+# write files for clust - just DEGs
+gc_for_clust <- gc%>%
+  filter(gene %in% degs)%>%
+  mutate(gene_id = gsub(pattern = "gene:", "", gene))%>%
+  select(gene_id, ConditionA01:ConditionL10)
+write_tsv(gc_for_clust, file = "clust_input/Schisto_gene_matrix_onlyDEGs.tsv")
+
+replicates_file_for_clust2 <- replicates_file_for_clust%>%
+  mutate(data_name = "Schisto_gene_matrix_onlyDEGs.tsv")
+write_tsv(replicates_file_for_clust2, file = "clust_input/replicates_file2.tsv",
+          col_names = FALSE)
+```
+
+## All genes
+
+*clust* only extracted two clusters from the full dataset.
+
+```{r}
+# read in cluster data
+clust_out_allgenes <- read_tsv(file = "clust_output/all_expressed/Clusters_Objects.tsv")
+```
+```{r}
+clust_out_allgenes <- clust_out_allgenes%>%
+  pivot_longer(., cols = everything(), names_to = "cluster", values_to = "gene")%>%
+  filter(gene != "Genes")
+# n_distinct(clust_out_allgenes$cluster)
+```
+```{r}
+gc_expressed_trans_long2 <- gc_expressed_trans_long%>%
+  ungroup()%>%
+  mutate(gene = gsub(pattern = "gene:", "", gene))
+
+# add cluster to main data
+gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
+  left_join(., clust_out_allgenes)
+```
+When we plot them, we see that one cluster groups genes that are down regulated in the early life stages, whereas the other cluster is quite variable.
+
+```{r}
+ggplot(gc_expressed_trans_clusters2%>%
+         filter(!is.na(cluster)), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.05) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+## Differentially expressed genes
+
+*clust* only extracted one cluster from the set of DEGs.
+
+```{r}
+# read in cluster data
+clust_out_degs <- read_tsv(file = "clust_output/only_DEGs/Clusters_Objects.tsv")
+```
+
+```{r}
+clust_out_degs <- clust_out_degs%>%
+  pivot_longer(., cols = everything(), names_to = "cluster", values_to = "gene")%>%
+  filter(gene != "Genes")
+n_distinct(clust_out_degs$cluster)
+```
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
+  left_join(., clust_out_degs)
+```
+The plot of this single cluster is not very convincing. 
+
+```{r}
+ggplot(gc_expressed_trans_clusters2%>%
+         filter(!is.na(cluster)), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.05) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+# Summary
+
+In conclusion...
