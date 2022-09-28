@@ -22,7 +22,7 @@ schisto_files <- list.files(".", pattern = "[.]bam")
 SchistoFCounts <- featureCounts(files =schisto_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/schisto_genome/schisto_annotation.gtf",  nthreads = 40)
 ```
 
-Export counts as a dataframe in another object cause and save it as inpit for next analysis:
+Export counts as a dataframe in another object cause and save it as input for next analysis:
 ```{r}
 SScountdf <- as.data.frame(SchistoFCounts$counts)
 write.table(SScountdf, file = "~/GitHub/Worms/data/SScountdf.csv")

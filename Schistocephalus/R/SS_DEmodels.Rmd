@@ -9,14 +9,17 @@ Here we test the models
 First we load the data putting the Host as design. I would load the data everytime and change the design, probably not the best but the easiest way.
 
 ```{r}
-SScountdf <- read.csv("~/GitHub/Worms/data/SScountdf.csv", header = TRUE, sep="")
+library(DESeq2)
+library(tidyverse)
+SScountdf <- read.csv("~/GitHub/Worms/Schistocephalus/data/SScountdf.csv", header = TRUE, sep="")
+SScolData <- read.csv("~/GitHub/Worms/Schistocephalus/data/schistoData.txt", header = TRUE, sep = "")
 ```
 
 
 M1 would be the dataset loaded in DEseq with the Host as design
 ```{r}
 M1 <- DESeqDataSetFromMatrix(
-  countData = SchistoFCounts$counts,
+  countData = SScountdf,
   colData = SScolData,
   design= ~ Host)
 ```
@@ -27,82 +30,76 @@ The we use DEseq with the likelihood ratio test to compare the Host model with t
 HostM1 <- DESeq(M1, test="LRT", reduced = ~1)
 ```
 Calculate the results
-
 ```{r}
 resultsM1 <- results(HostM1)
 ```
+
 Load the data with Stage as design: M2
 ```{r}
 M2 <- DESeqDataSetFromMatrix(
-  countData = SchistoFCounts$counts,
+  countData = SScountdf,
   colData = SScolData,
   design= ~ Stage)
 ```
 
 Test Stage against intercept
-
 ```{r}
 StageM2 <- DESeq(M2, test="LRT", reduced = ~1)
 ```
 
 Calculate the results 
-
 ```{r}
 resultsM2 <- results(StageM2)
 ```
 
 
 Load the data with Host and Stage interaction (Condition) against the intercept: M3
-
 ```{r}
 M3 <- DESeqDataSetFromMatrix(
-  countData = SchistoFCounts$counts,
+  countData = SScountdf,
   colData = SScolData,
   design= ~ Condition)
 ```
 
-Now Test the M3 model (Host + Stage) against the intercept
-
+Now Test the M3 model (Host * Stage) against the intercept
 ```{r}
-HostStageM3 <- DESeq(M3, test="LRT", reduced = ~ Condition)
+ConditionM3 <- DESeq(M3, test="LRT", reduced = ~ 1)
 resultsM3 <- results(ConditionM3)
 ```
-################Solve this
 
-Load the data with Design condition. It doesn't work, we have to first create the matrix: condmatrix
+Load the data with Design condition usign a matrix to then test against the Host and Stage
 ```{r}
 condmatrix <- model.matrix(~Condition, SScolData)
 M4 <- DESeqDataSetFromMatrix(
-  countData = SchistoFCounts$counts,
+  countData = SScountdf,
   colData = SScolData,
   design= condmatrix)
 ```
 
 
-##########Since we used a matrix I have to also put the term I'm removing as a matrix, so here is the matrix for the Host variable
+Since we used a matrix for full model we have to use the matrix for Host
 ```{r}
-Hostmatrix <- model.matrix(~Host, SScolData)
+hostmatrix <- model.matrix(~Host, SScolData)
 ```
 
 Now we test the the condition and the Host
 ```{r}
-ConditionM4 <- DESeq(M4, test = "LRT", reduced = Hostmatrix)
+ConditionM4 <- DESeq(M4, test = "LRT", reduced = hostmatrix)
 ```
+
 ```{r}
 resultsM4 <- results(ConditionM4)
 ```
 
-Now with the same data loaded in M4 (design ~ condition) we test against the stage, so we need a stage matrix
-
-
+Now with the same data loaded in M4 (condmatrix) we test against the stage, so we need a stage matrix
 ```{r}
 Stagematrix <- model.matrix(~Stage, SScolData)
 ```
 
 And then we test
 ```{r}
-ConditionM4.1 <- DESeq(M4, test = "LRT", reduced = Stagematrix)
-resultsM4.1 <- results(ConditionM4.1)
+ConditionM5 <- DESeq(M4, test = "LRT", reduced = Stagematrix)
+resultsM5 <- results(ConditionM5)
 ```
 
 
@@ -113,94 +110,40 @@ Now I have to create a data frame to plot and compare the models. So I have to t
 int_host <- as.data.frame(resultsM1)
 int_stage <- as.data.frame(resultsM2)
 host_condition <- as.data.frame(resultsM4)
-stage_condition <- as.data.frame(resultsM4.1)
+stage_condition <- as.data.frame(resultsM5)
+int_condition <- as.data.frame(resultsM3)
 
 
-adjp <- dplyr::lst(int_host, int_stage, host_condition, stage_condition) %>% 
-  set_names(c("int_host", "int_stage", "host_condition", "stage_condition")) %>% 
-  bind_rows(.id = "Model")
+DEGsmodels <- dplyr::lst(int_host, int_stage, host_condition, stage_condition, int_condition) %>% 
+  set_names(c("int_host", "int_stage", "host_condition", "stage_condition", "int_condition")) %>% 
+  bind_rows(.id = "Model") %>% 
+  select(Model, padj)
+
+write.table(DEGsmodels, file="~/GitHub/Worms/Schistocephalus/data/DEGsmodels.csv")
 ```
 
 
-Try here to test the condition model alone, and extract the differentially expressed genes
 ```{r}
-
+filteredDEGs <- filter(DEGsmodels, padj < 0.00000000000001)
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 Plot the adjpvalues
-
-
 ```{r}
-colSums(apply(adjp, 2, "<", 0.05), na.rm =T)
-```
-
-
-```{r}
-ggplot(adjp, aes(x=padj, color = Model)) + 
-         geom_density()
-  
+ggplot(DEGsmodels, aes(x=padj+0.0000000001, color = Model)) + 
+         geom_density() +
+  scale_x_log10()
 ```
 
 ```{r}
-filter(adjp, !is.na(padj)) %>%
-ggplot(aes(x=padj, color = Model)) + 
-         geom_histogram()
-```
-
-Pvalues Plots, fail
-
-Try to set a threshold to filter the FDR
-```{r}
-sum(adjp$padj < 0.1, na.rm=TRUE)
-```
-
-```{r}
-
+filter(DEGsmodels) %>%
+ggplot(aes(x=padj+0.00000001, color = Model, fill = Model)) + 
+         geom_histogram()+
+  scale_x_log10()
 ```
 
 
 
-
-
-geom_density(aes(x=m1), stat="density", fill="blue", kernel="gaussian")+
-  geom_density(aes(x=m2), stat="density", fill="yellow", kernel="gaussian")+
-  geom_density(aes(x=m3), stat="density", fill="black", kernel="gaussian")+
-  geom_density(aes(x=m4), stat = "density", fill="pink", kernel="gaussian")+
-  geom_density(aes(x=m4.1), stat="density", fill="red", kernel="gaussian")+
-  geom_density(aes(x=m4.2), stat="density", fill="green", kernel="gaussian")+
-  xlab("p-values") +
-  ylab("count") +
-  xlim(0, 0.05) +
-  ylim(0, 60)
-
-colSums(apply(adjp, 2, "<", 0.05), na.rm =T)
 ```{r}
 plotMA(resultsM1, ylim=c(-2,2))
 ```
@@ -210,7 +153,7 @@ plotMA(resultsM3, ylim=c(-2,2))
 ```
 
 ```{r}
-as.data.frame(resultsM1) %>% 
+as.data.frame(resultsM3) %>% 
 ggplot(aes(x=log2FoldChange, y=-log10(pvalue))) + 
          geom_point()
 ```
@@ -220,21 +163,6 @@ as.data.frame(resultsM1) %>%
 ggplot() +
   geom_smooth(aes(x=pvalue, y=log2FoldChange))
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -252,19 +180,5 @@ text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0,1)),
      adj = c(0.5,1.7), xpd=NA)
 legend("topright", fill=rev(colori), legend=rev(names(colori)))
 ```
-
-
-
-
-
-
-
-Probably you should pivot the dataframe, and it would be easier
-```{r}
-
-```
-
-
-
 
 
