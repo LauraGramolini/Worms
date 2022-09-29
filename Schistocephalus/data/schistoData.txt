@@ -1,73 +1,73 @@
-Unique_name	Condition	Stage	Replicate	Host	Day	Pop	In_vitro	Dual-seq	Double_infection	Lib_name
-ConditionA01	ConditionA	Transmission	1	Free	0	GOT	no	no	no	LIB01
-ConditionA02	ConditionA	Transmission	2	Free	0	GOT	no	no	no	LIB02
-ConditionA03	ConditionA	Transmission	3	Free	0	NO	no	no	no	LIB03 
-ConditionA04	ConditionA	Transmission	4	Free	0	GOT	no	no	no	LIB04
-ConditionA05	ConditionA	Transmission	5	Free	0	GOT	no	no	no	LIB43
-ConditionA06	ConditionA	Transmission	6	Free	0	NO	no	no	no	LIB58 
-ConditionB01	ConditionB	Infecting	1	Copepod	0.04	GOT	yes	no	no	LIB05
-ConditionB02	ConditionB	Infecting	2	Copepod	0.04	GOT	yes	no	no	LIB06
-ConditionB03	ConditionB	Infecting	3	Copepod	0.04	GOT	yes	no	no	LIB07
-ConditionB04	ConditionB	Infecting	4	Copepod	0.04	GOT	yes	no	no	LIB08
-ConditionB05	ConditionB	Infecting	5	Copepod	0.04	NO	yes	no	no	LIB74 
-ConditionB06	ConditionB	Infecting	6	Copepod	0.04	NO	yes	no	no	LIB96 
-ConditionB07	ConditionB	Infecting	7	Copepod	0.04	NO	yes	no	no	LIB99 
-ConditionC01	ConditionC	Growing	1	Copepod	7	GOT	no	yes	no	LIB32
-ConditionC02	ConditionC	Growing	2	Copepod	7	GOT	no	yes	no	LIB34
-ConditionC03	ConditionC	Growing	3	Copepod	7	GOT	no	yes	no	LIB35
-ConditionC04	ConditionC	Growing	4	Copepod	7	NO	no	yes	no	LIB48
-ConditionC05	ConditionC	Growing	5	Copepod	7	NO	no	yes	no	LIB53
-ConditionD01	ConditionD	Transmission	1	Copepod	14	GOT	no	yes	no	LIB36
-ConditionD02	ConditionD	Transmission	2	Copepod	14	GOT	no	yes	no	LIB37
-ConditionD03	ConditionD	Transmission	3	Copepod	14	GOT	no	yes	no	LIB38
-ConditionE01	ConditionE	Infecting	1	Stickleback	14	GOT	yes	no	no	LIB20
-ConditionE02	ConditionE	Infecting	2	Stickleback	14	GOT	yes	no	no	LIB21
-ConditionE03	ConditionE	Infecting	3	Stickleback	14	GOT	yes	no	no	LIB22
-ConditionE04	ConditionE	Infecting	4	Stickleback	14	GOT	yes	no	no	LIB23
-ConditionE05	ConditionE	Infecting	5	Stickleback	14	NO	yes	no	no	LIB52
-ConditionE06	ConditionE	Infecting	6	Stickleback	14	NO	yes	no	no	LIB59
-ConditionF01	ConditionF	Growing	1	Stickleback	28	GOT	no	no	no	LIB70
-ConditionF02	ConditionF	Growing	2	Stickleback	28	GOT	no	no	no	LIB71
-ConditionF03	ConditionF	Growing	3	Stickleback	28	GOT	no	no	no	LIB72
-ConditionF04	ConditionF	Growing	4	Stickleback	28	GOT	no	no	no	LIB73
-ConditionF05	ConditionF	Growing	5	Stickleback	28	GOT	no	no	no	LIB78
-ConditionF06	ConditionF	Growing	6	Stickleback	28	GOT	no	no	no	LIB79
-ConditionF07	ConditionF	Growing	7	Stickleback	68	UK	no	no	no	SRR2966892
-ConditionF08	ConditionF	Growing	8	Stickleback	68	UK	no	no	no	SRR2966893
-ConditionF09	ConditionF	Growing	9	Stickleback	68	UK	no	no	no	SRR2966899
-ConditionF10	ConditionF	Growing	10	Stickleback	68	UK	no	no	no	SRR2966900
-ConditionF11	ConditionF	Growing	11	Stickleback	68	UK	no	no	no	SRR2966901
-ConditionF12	ConditionF	Growing	12	Stickleback	68	UK	no	no	no	SRR2966902
-ConditionF13	ConditionF	Growing	13	Stickleback	68	UK	no	no	no	SRR2966903
-ConditionG01	ConditionG	Growing_Transmission	1	Stickleback	43	GOT	no	no	no	LIB60
-ConditionG02	ConditionG	Growing_Transmission	2	Stickleback	43	GOT	no	no	no	LIB61
-ConditionG03	ConditionG	Growing_Transmission	3	Stickleback	43	GOT	no	no	no	LIB62
-ConditionG04	ConditionG	Growing_Transmission	4	Stickleback	43	GOT	no	no	yes	LIB63
-ConditionG05	ConditionG	Growing_Transmission	5	Stickleback	43	GOT	no	no	no	LIB75
-ConditionG06	ConditionG	Growing_Transmission	6	Stickleback	43	GOT	no	no	yes	LIB76
-ConditionH01	ConditionH	Transmission	1	Stickleback	67	GOT	no	no	no	LIB64
-ConditionH02	ConditionH	Transmission	2	Stickleback	67	GOT	no	no	yes	LIB77
-ConditionH03	ConditionH	Transmission	3	Stickleback	83	GOT	no	no	yes	LIB80
-ConditionH04	ConditionH	Transmission	4	Stickleback	97	GOT	no	no	no	LIB83
-ConditionH05	ConditionH	Transmission	5	Stickleback	97	GOT	no	no	no	LIB87
-ConditionH06	ConditionH	Transmission	6	Stickleback	83	GOT	no	no	yes	LIB91
-ConditionH07	ConditionH	Transmission	7	Stickleback	114	UK	no	no	no	SRR2966894
-ConditionH08	ConditionH	Transmission	8	Stickleback	114	UK	no	no	no	SRR2966904
-ConditionH09	ConditionH	Transmission	9	Stickleback	114	UK	no	no	no	SRR2966905
-ConditionH10	ConditionH	Transmission	10	Stickleback	114	UK	no	no	no	SRR2966906
-ConditionI01	ConditionI	Infecting	1	Bird	83,08	GOT	yes	no	no	LIB85
-ConditionI02	ConditionI	Infecting	2	Bird	83,08	GOT	yes	no	no	LIB88
-ConditionI03	ConditionI	Infecting	3	Bird	83,08	GOT	yes	no	no	LIB89
-ConditionI04	ConditionI	Infecting	4	Bird	83,08	GOT	yes	no	yes	LIB92
-ConditionI05	ConditionI	Infecting	5	Bird	97,08	GOT	yes	no	yes	LIB93
-ConditionI06	ConditionI	Infecting	6	Bird	83,08	GOT	yes	yes	yes	LIB94
-ConditionL01	ConditionL	Reproducing	1	Bird	87	GOT	yes	no	yes	LIB81
-ConditionL02	ConditionL	Reproducing	2	Bird	87	GOT	yes	no	no	LIB82
-ConditionL03	ConditionL	Reproducing	3	Bird	101	GOT	yes	no	no	LIB84
-ConditionL04	ConditionL	Reproducing	4	Bird	87	GOT	yes	no	yes	LIB86
-ConditionL05	ConditionL	Reproducing	5	Bird	87	GOT	yes	no	yes	LIB90
-ConditionL06	ConditionL	Reproducing	6	Bird	101	GOT	yes	no	no	LIB95
-ConditionL07	ConditionL	Reproducing	7	Bird	730	UK	yes	no	no	SRR2966895
-ConditionL08	ConditionL	Reproducing	8	Bird	730	UK	yes	no	no	SRR2966896
-ConditionL09	ConditionL	Reproducing	9	Bird	730	UK	yes	no	no	SRR2966897
-ConditionL10	ConditionL	Reproducing	10	Bird	730	UK	yes	no	no	SRR2966898
+	Unique_name	Condition	Stage	Replicate	Host	Sampling_day	Time	Pop	In_vitro	Dual-seq	Double_infection	Lib_name
+ConditionA01	ConditionA01	ConditionA	Transmission	1	Free	0	0	GOT	no	no	no	LIB01
+ConditionA02	ConditionA02	ConditionA	Transmission	2	Free	0	0	GOT	no	no	no	LIB02
+ConditionA03	ConditionA03	ConditionA	Transmission	3	Free	0	0	NO	no	no	no	LIB03 
+ConditionA04	ConditionA04	ConditionA	Transmission	4	Free	0	0	GOT	no	no	no	LIB04
+ConditionA05	ConditionA05	ConditionA	Transmission	5	Free	0	0	GOT	no	no	no	LIB43
+ConditionA06	ConditionA06	ConditionA	Transmission	6	Free	0	0	NO	no	no	no	LIB58 
+ConditionB01	ConditionB01	ConditionB	Infecting	1	Copepod	0.04	0.04	GOT	yes	no	no	LIB05
+ConditionB02	ConditionB02	ConditionB	Infecting	2	Copepod	0.04	0.04	GOT	yes	no	no	LIB06
+ConditionB03	ConditionB03	ConditionB	Infecting	3	Copepod	0.04	0.04	GOT	yes	no	no	LIB07
+ConditionB04	ConditionB04	ConditionB	Infecting	4	Copepod	0.04	0.04	GOT	yes	no	no	LIB08
+ConditionB05	ConditionB05	ConditionB	Infecting	5	Copepod	0.04	0.04	NO	yes	no	no	LIB74 
+ConditionB06	ConditionB06	ConditionB	Infecting	6	Copepod	0.04	0.04	NO	yes	no	no	LIB96 
+ConditionB07	ConditionB07	ConditionB	Infecting	7	Copepod	0.04	0.04	NO	yes	no	no	LIB99 
+ConditionC01	ConditionC01	ConditionC	Growing	1	Copepod	7	7	GOT	no	yes	no	LIB32
+ConditionC02	ConditionC02	ConditionC	Growing	2	Copepod	7	7	GOT	no	yes	no	LIB34
+ConditionC03	ConditionC03	ConditionC	Growing	3	Copepod	7	7	GOT	no	yes	no	LIB35
+ConditionC04	ConditionC04	ConditionC	Growing	4	Copepod	7	7	NO	no	yes	no	LIB48
+ConditionC05	ConditionC05	ConditionC	Growing	5	Copepod	7	7	NO	no	yes	no	LIB53
+ConditionD01	ConditionD01	ConditionD	Transmission	1	Copepod	14	14	GOT	no	yes	no	LIB36
+ConditionD02	ConditionD02	ConditionD	Transmission	2	Copepod	14	14	GOT	no	yes	no	LIB37
+ConditionD03	ConditionD03	ConditionD	Transmission	3	Copepod	14	14	GOT	no	yes	no	LIB38
+ConditionE01	ConditionE01	ConditionE	Infecting	1	Stickleback	14	14	GOT	yes	no	no	LIB20
+ConditionE02	ConditionE02	ConditionE	Infecting	2	Stickleback	14	14	GOT	yes	no	no	LIB21
+ConditionE03	ConditionE03	ConditionE	Infecting	3	Stickleback	14	14	GOT	yes	no	no	LIB22
+ConditionE04	ConditionE04	ConditionE	Infecting	4	Stickleback	14	14	GOT	yes	no	no	LIB23
+ConditionE05	ConditionE05	ConditionE	Infecting	5	Stickleback	14	14	NO	yes	no	no	LIB52
+ConditionE06	ConditionE06	ConditionE	Infecting	6	Stickleback	14	14	NO	yes	no	no	LIB59
+ConditionF01	ConditionF01	ConditionF	Growing	1	Stickleback	28	28	GOT	no	no	no	LIB70
+ConditionF02	ConditionF02	ConditionF	Growing	2	Stickleback	28	28	GOT	no	no	no	LIB71
+ConditionF03	ConditionF03	ConditionF	Growing	3	Stickleback	28	28	GOT	no	no	no	LIB72
+ConditionF04	ConditionF04	ConditionF	Growing	4	Stickleback	28	28	GOT	no	no	no	LIB73
+ConditionF05	ConditionF05	ConditionF	Growing	5	Stickleback	28	28	GOT	no	no	no	LIB78
+ConditionF06	ConditionF06	ConditionF	Growing	6	Stickleback	28	28	GOT	no	no	no	LIB79
+ConditionF07	ConditionF07	ConditionF	Growing	7	Stickleback	68	28	UK	no	no	no	SRR2966892
+ConditionF08	ConditionF08	ConditionF	Growing	8	Stickleback	68	28	UK	no	no	no	SRR2966893
+ConditionF09	ConditionF09	ConditionF	Growing	9	Stickleback	68	28	UK	no	no	no	SRR2966899
+ConditionF10	ConditionF10	ConditionF	Growing	10	Stickleback	68	28	UK	no	no	no	SRR2966900
+ConditionF11	ConditionF11	ConditionF	Growing	11	Stickleback	68	28	UK	no	no	no	SRR2966901
+ConditionF12	ConditionF12	ConditionF	Growing	12	Stickleback	68	28	UK	no	no	no	SRR2966902
+ConditionF13	ConditionF13	ConditionF	Growing	13	Stickleback	68	28	UK	no	no	no	SRR2966903
+ConditionG01	ConditionG01	ConditionG	Growing_Transmission	1	Stickleback	43	43	GOT	no	no	no	LIB60
+ConditionG02	ConditionG02	ConditionG	Growing_Transmission	2	Stickleback	43	43	GOT	no	no	no	LIB61
+ConditionG03	ConditionG03	ConditionG	Growing_Transmission	3	Stickleback	43	43	GOT	no	no	no	LIB62
+ConditionG04	ConditionG04	ConditionG	Growing_Transmission	4	Stickleback	43	43	GOT	no	no	yes	LIB63
+ConditionG05	ConditionG05	ConditionG	Growing_Transmission	5	Stickleback	43	43	GOT	no	no	no	LIB75
+ConditionG06	ConditionG06	ConditionG	Growing_Transmission	6	Stickleback	43	43	GOT	no	no	yes	LIB76
+ConditionH01	ConditionH01	ConditionH	Transmission	1	Stickleback	67	67	GOT	no	no	no	LIB64
+ConditionH02	ConditionH02	ConditionH	Transmission	2	Stickleback	67	67	GOT	no	no	yes	LIB77
+ConditionH03	ConditionH03	ConditionH	Transmission	3	Stickleback	83	67	GOT	no	no	yes	LIB80
+ConditionH04	ConditionH04	ConditionH	Transmission	4	Stickleback	97	67	GOT	no	no	no	LIB83
+ConditionH05	ConditionH05	ConditionH	Transmission	5	Stickleback	97	67	GOT	no	no	no	LIB87
+ConditionH06	ConditionH06	ConditionH	Transmission	6	Stickleback	83	67	GOT	no	no	yes	LIB91
+ConditionH07	ConditionH07	ConditionH	Transmission	7	Stickleback	114	67	UK	no	no	no	SRR2966894
+ConditionH08	ConditionH08	ConditionH	Transmission	8	Stickleback	114	67	UK	no	no	no	SRR2966904
+ConditionH09	ConditionH09	ConditionH	Transmission	9	Stickleback	114	67	UK	no	no	no	SRR2966905
+ConditionH10	ConditionH10	ConditionH	Transmission	10	Stickleback	114	67	UK	no	no	no	SRR2966906
+ConditionI01	ConditionI01	ConditionI	Infecting	1	Bird	83,08	67,08	GOT	yes	no	no	LIB85
+ConditionI02	ConditionI02	ConditionI	Infecting	2	Bird	83,08	67,08	GOT	yes	no	no	LIB88
+ConditionI03	ConditionI03	ConditionI	Infecting	3	Bird	83,08	67,08	GOT	yes	no	no	LIB89
+ConditionI04	ConditionI04	ConditionI	Infecting	4	Bird	83,08	67,08	GOT	yes	no	yes	LIB92
+ConditionI05	ConditionI05	ConditionI	Infecting	5	Bird	97,08	67,08	GOT	yes	no	yes	LIB93
+ConditionI06	ConditionI06	ConditionI	Infecting	6	Bird	83,08	67,08	GOT	yes	yes	yes	LIB94
+ConditionL01	ConditionL01	ConditionL	Reproducing	1	Bird	87	71,08	GOT	yes	no	yes	LIB81
+ConditionL02	ConditionL02	ConditionL	Reproducing	2	Bird	87	71,08	GOT	yes	no	no	LIB82
+ConditionL03	ConditionL03	ConditionL	Reproducing	3	Bird	101	71,08	GOT	yes	no	no	LIB84
+ConditionL04	ConditionL04	ConditionL	Reproducing	4	Bird	87	71,08	GOT	yes	no	yes	LIB86
+ConditionL05	ConditionL05	ConditionL	Reproducing	5	Bird	87	71,08	GOT	yes	no	yes	LIB90
+ConditionL06	ConditionL06	ConditionL	Reproducing	6	Bird	101	71,08	GOT	yes	no	no	LIB95
+ConditionL07	ConditionL07	ConditionL	Reproducing	7	Bird	730	71,08	UK	yes	no	no	SRR2966895
+ConditionL08	ConditionL08	ConditionL	Reproducing	8	Bird	730	71,08	UK	yes	no	no	SRR2966896
+ConditionL09	ConditionL09	ConditionL	Reproducing	9	Bird	730	71,08	UK	yes	no	no	SRR2966897
+ConditionL10	ConditionL10	ConditionL	Reproducing	10	Bird	730	71,08	UK	yes	no	no	SRR2966898
