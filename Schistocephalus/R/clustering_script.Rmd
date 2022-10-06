@@ -651,7 +651,7 @@ ggplot(gc_degs_host, aes(x = padj+0.00000001)) +
   scale_x_log10()
 ```
 
-So, when we take a conservative p-value threshold, many of these genes will be removed. Here are the number of DEGs at different levels of significance. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
+So, with a conservative p-value threshold, many of these genes will be removed. Here are the number of DEGs at different levels of significance. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
 
 ```{r}
 gc_degs_host%>%
@@ -916,7 +916,7 @@ The expression profiles clearly suggest that expression does not depend entirely
 
 ## DEGs among all life stages
 
-Thus, the model with all developmental stages is probably the best. Let's assess this by looking the number of genes considered differentially expressed by different models.
+Thus, the model with all developmental stages is probably the best. Let's assess this by looking at the number of genes considered differentially expressed by different models.
 
 ```{r}
 # table of which model comps identified which genes as significant
@@ -933,7 +933,7 @@ gc_degs_wide <- gc_degs_wide%>%
 rm(gc_degs_wide2)
 ```
 
-### DEGs, host vs devo stage
+### DEGs, host vs developmental stage
 
 This table shows the number of genes identified as differentially expressed (p < 0.001) among 'hosts' and among 'developmental stages'. A large number of genes (~7000) were considered DE by both models. But the full model considered another ~4000 genes as DE that the host model did not. By contrast, only a small number of genes (75) were considered DE by the host model but not the full model. It is also reassuring that the ~1000 genes with high enough counts to justify a LRT in the full model, but not in the host model, were all not significant.
 
@@ -1047,7 +1047,7 @@ ggplot(gc_expressed_trans_clusters%>%
 
 ### DEGs, function vs devo stage
 
-Now, we compare the genes identified as differentially expressed (p < 0.001) among 'functional stages' and among 'developmental stages'. As for the host model, large number of genes (~6000) were considered DE by both models. The full model considered another ~5500 genes as DE that the stage model did not, which was more than in the host model. By contrast, few genes (81) were considered DE by the stage model but not the full model. Again, the genes with high enough counts to justify a LRT in the full model (~750), but not in the simpler stage model, were all not significant.
+Now, we compare the genes identified as differentially expressed (p < 0.001) among 'functional stages' and among 'developmental stages'. Like the host model comps above, large number of genes (~6000) were considered DE by both models. The full model considered another ~5500 genes as DE that the stage model did not, which was more than in the host model. By contrast, few genes (81) were considered DE by the stage model but not the full model. Again, the genes with high enough counts to justify a LRT in the full model (~750), but not in the simpler stage model, were all not significant.
 
 ```{r}
 with(gc_degs_wide, addmargins(table(int_condition, int_stage, useNA = "ifany"), margin = c(1,2)))
@@ -1270,7 +1270,7 @@ ggplot(gc_expressed_trans_clusters%>%
         )
 ```
 
-Some of the trends might be easier to assess if we plot the expression profiles for individual genes. Let's sample 100 random genes from each cluster and plot them. This uncovers a little more nuance within the clusters, such that we can see why some were clusters were split (e.g. more variance at some stages than others).
+Some of the trends might be easier to assess if we plot the expression profiles for individual genes. Let's sample 100 random genes from each cluster and plot them. This uncovers a little more nuance within the clusters, such that we can see why some clusters were split (e.g. more variance at some stages than others).
 
 ```{r}
 gene100_perclust <- gc_expressed_trans_clusters%>%
@@ -1356,7 +1356,7 @@ ggplot(gc_expressed_trans_clusters%>%
 
 ## Heatmap
 
-https://genviz.org/module-04-expression/0004/02/01/DifferentialExpression/
+Some of the clusters in the previous plot are rather similar. A common way to visualize clusters, such that similar ones are next to each other, are heatmaps. I used this [approach](https://genviz.org/module-04-expression/0004/02/01/DifferentialExpression/) to build a heatmap.
 
 ```{r}
 library(ggdendro)
@@ -1365,18 +1365,16 @@ library(grid)
 library(gridExtra)
 ```
 
-Pick some number of genes..
+I picked the 7000 genes that were most strongly differentially expressed across life stages. Then, I reran the clustering algorithm and produced a dendrogram.
 
 ```{r}
+# pick most DE genes
 degs_top1000 <- gc_degs_all%>%
   arrange(padj)%>%
   slice_head(n = 7000)%>%
   .$Gene
-```
 
-Make clusters
-
-```{r}
+# rerun clustering algorithm
 gene_dist <- dist(
   # distance matrix for just DEGs
   gc_expressed_trans[
@@ -1386,17 +1384,14 @@ gene_dist <- dist(
 
 gene_hclust <- hclust(gene_dist, method = "ward.D2")
 
-# order of genes in cluster
+# extract order of genes in cluster
 gene_order <- row.names(
   gc_expressed_trans[
     row.names(gc_expressed_trans) %in% degs_top1000,
     ][gene_hclust$order,]
   )
-```
 
-Make dendrogram
-
-```{r}
+# create dendrogram from clustering output
 dendro <- as.dendrogram(gene_hclust)
 dendro_data <- segment(dendro_data(dendro, type = "rectangle"))
 dendrogram <- ggplot(dendro_data) + 
@@ -1408,7 +1403,7 @@ dendrogram <- ggplot(dendro_data) +
 # dendrogram
 ```
 
-Rearrange data for heatmap
+The normalized expression data for these genes need to be rearranged into long format for plotting.
 
 ```{r}
 # rearrange data for plotting
@@ -1438,10 +1433,10 @@ dx <- data.frame(grp = unique(gc_expressed_trans_long_hm$grp),
 gc_expressed_trans_long_hm <- left_join(gc_expressed_trans_long_hm, dx)
 ```
 
-Make heatmap 
+The final plot is a conglomeration of several sub-elements, including the dendrogram, a heatmap, and tiles that distinguish the groups.
 
 ```{r}
-# heatmap
+# make heatmap
 heatmap <- ggplot(gc_expressed_trans_long_hm, aes(x = sample, y = gene)) +
   geom_tile(aes(fill = trans_counts)) +
   scale_fill_distiller(type = "div", palette = "RdBu") +
@@ -1453,9 +1448,8 @@ heatmap <- ggplot(gc_expressed_trans_long_hm, aes(x = sample, y = gene)) +
 # heatmap
 ```
 
-Make sample id
-
 ```{r}
+# make dataset for tiles above heatmap
 dat_bars_above_heatmap <- gc_expressed_trans_long_hm%>%
          select(sample, label)%>%
          distinct()%>%
@@ -1486,9 +1480,7 @@ sample_map <- ggplot(gc_expressed_trans_long_hm%>%
 # sample map
 ```
 
-```{r}
-# grid.arrange(sample_map, heatmap, ncol = 1, heights = c(1,5))
-```
+After making the sub-elements, they need to be aligned and glued together. For this they are converted to 'grobs'.
 
 ```{r}
 ################################################################################
@@ -1512,7 +1504,7 @@ sampleClinicalGrob <- ggplotGrob(sample_map)
 ######### Step 4: align the gene dendrograms to match the heatmap ##############
 
 # check that the both the heatmap and gene dendrogram have the same number of vertical elements
-length(heatmapGrob$heights) == length(geneDendrogramGrob$heights)
+#length(heatmapGrob$heights) == length(geneDendrogramGrob$heights)
 
 # make sure every height between the two grobs is the same
 maxHeight <- unit.pmax(geneDendrogramGrob$heights, heatmapGrob$heights)
@@ -1527,8 +1519,8 @@ heatmapGrob$heights <- as.list(maxHeight)
 # repeat the steps in the tutorial
 
 # check the widths of each grob
-heatmapGrob$widths
-sampleClinicalGrob$widths
+#heatmapGrob$widths
+#sampleClinicalGrob$widths
 
 # add in the missing columns
 sampleClinicalGrob <- gtable_add_cols(sampleClinicalGrob, heatmapGrob$widths[7], 6)
@@ -1541,7 +1533,7 @@ heatmapGrob$widths <- as.list(maxWidth)
 sampleClinicalGrob$widths <- as.list(maxWidth)
 ```
 
-Looks nice.
+Here is the final product, showing the major clusters.
 
 ```{r}
 ################################################################################
@@ -1560,9 +1552,6 @@ finalGrob_v2 <- arrangeGrob(blankPanel, sampleClinicalGrob, geneDendrogramGrob, 
 # draw the final result
 grid.draw(finalGrob_v2)
 ```
-
-
-
 
 
 # *Clust* algorithm
@@ -1672,6 +1661,7 @@ n_distinct(clust_out_degs$cluster)
 gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
   left_join(., clust_out_degs)
 ```
+
 The plot of this single cluster is not very convincing. 
 
 ```{r}
@@ -1702,4 +1692,4 @@ ggplot(gc_expressed_trans_clusters2%>%
 
 # Summary
 
-In conclusion...
+In conclusion, some of the largest changes in gene expression occur at the beginning and end of the life cycle. Most changes in gene expression cannot be neatly attributed to changing the host or changing the function. Rather, gene expression can vary within hosts and among functionally similar stages in different hosts.
