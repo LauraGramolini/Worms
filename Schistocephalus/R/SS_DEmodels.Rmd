@@ -11,8 +11,8 @@ First we load the data putting the Host as design. I would load the data everyti
 ```{r}
 library(DESeq2)
 library(tidyverse)
-SScountdf <- read.csv("~/GitHub/Worms/Schistocephalus/data/SScountdf.csv", header = TRUE, sep="")
-SScolData <- read.csv("~/GitHub/Worms/Schistocephalus/data/schistoData.txt", header = TRUE, sep = "")
+SScountdf <- read.csv("../data/SScountdf.csv", header = TRUE, sep="")
+SScolData <- read.csv("../data/schistoData.txt", header = TRUE, sep = "")
 ```
 
 
@@ -67,6 +67,18 @@ ConditionM3 <- DESeq(M3, test="LRT", reduced = ~ 1)
 resultsM3 <- results(ConditionM3)
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
 Load the data with Design condition usign a matrix to then test against the Host and Stage
 ```{r}
 condmatrix <- model.matrix(~Condition, SScolData)
@@ -119,7 +131,7 @@ DEGsmodels <- dplyr::lst(int_host, int_stage, host_condition, stage_condition, i
   bind_rows(.id = "Model") %>% 
   select(Model, padj)
 
-write.table(DEGsmodels, file="~/GitHub/Worms/Schistocephalus/data/DEGsmodels.csv")
+# write.table(DEGsmodels, file="~/GitHub/Worms/Schistocephalus/data/DEGsmodels.csv")
 ```
 
 
@@ -182,3 +194,567 @@ legend("topright", fill=rev(colori), legend=rev(names(colori)))
 ```
 
 
+
+
+
+The "condition" model is the best, suggesting that genes do not vary in purely host- or function-specific ways. Since a given developmental stage may have a unique pattern of gene expression, let's use DESeq2 to extract the genes that are significantly up- or down-regulated in each stage, relative to the rest of the life cycle. These contrasts were constructed as suggested [here](https://github.com/tavareshugo/tutorial_DESeq2_contrasts/blob/main/DESeq2_contrasts.md).
+
+```{r}
+ConditionM3_noLRT <- DESeq(M3) # refit the DESeq model, but leave out the LRT
+```
+
+For every developmental stage we sampled, the group mean was calculated and compared to the overall mean of all the other samples combined.
+
+```{r}
+# model matrix
+mod_mat <- model.matrix(design(ConditionM3_noLRT), colData(ConditionM3_noLRT))
+
+# to extract means for each group
+condA <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionA", ])
+condB <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionB", ])
+condC <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionC", ])
+condD <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionD", ])
+condE <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionE", ])
+condF <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionF", ])
+condG <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionG", ])
+condH <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionH", ])
+condI <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionI", ])
+condL <- colMeans(mod_mat[ConditionM3_noLRT$Condition == "ConditionL", ])
+
+# to extract means for all groups besides the focal group
+all_butA <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionA", ])
+all_butB <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionB", ])
+all_butC <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionC", ])
+all_butD <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionD", ])
+all_butE <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionE", ])
+all_butF <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionF", ])
+all_butG <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionG", ])
+all_butH <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionH", ])
+all_butI <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionI", ])
+all_butL <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionL", ])
+```
+
+```{r}
+# two ways to get same results
+# a_vs_b <- results(ConditionM3_noLRT, 
+#                   contrast = list("Condition_ConditionB_vs_ConditionA")) # from constrasts
+# a_vs_b2 <- results(ConditionM3_noLRT, contrast = condB - condA) # from matrix
+# qplot(a_vs_b$log2FoldChange, a_vs_b2$log2FoldChange) + geom_abline()
+```
+
+
+```{r}
+# calculate contrasts for each focal group vs all other groups
+DEGs_condA <- results(ConditionM3_noLRT, contrast = condA - all_butA)
+DEGs_condB <- results(ConditionM3_noLRT, contrast = condB - all_butB)
+DEGs_condC <- results(ConditionM3_noLRT, contrast = condC - all_butC)
+DEGs_condD <- results(ConditionM3_noLRT, contrast = condD - all_butD)
+DEGs_condE <- results(ConditionM3_noLRT, contrast = condE - all_butE)
+DEGs_condF <- results(ConditionM3_noLRT, contrast = condF - all_butF)
+DEGs_condG <- results(ConditionM3_noLRT, contrast = condG - all_butG)
+DEGs_condH <- results(ConditionM3_noLRT, contrast = condH - all_butH)
+DEGs_condI <- results(ConditionM3_noLRT, contrast = condI - all_butI)
+DEGs_condL <- results(ConditionM3_noLRT, contrast = condL - all_butL)
+```
+
+Then, we can extract the genes that were considered differentially expressed in each group. We take genes with p-values below 0.001, which represents the FDR (`padj`).
+
+```{r}
+make_df_for_each_focal_comp <- function(DEG_output, condition_name, p_thresh_fdr){
+  p_thresh <- p_thresh_fdr # padj used, so this is False Discovery Rate
+  dx <- DEG_output%>%
+    data.frame()%>%
+    mutate(gene = row.names(.),
+           diff_exp = case_when(is.na(padj) ~ NA_character_,
+                                padj > p_thresh ~ "no",
+                                log2FoldChange > 0 ~ "up",
+                                log2FoldChange < 0 ~ "down"),
+           condition = condition_name,
+           contrast = "all")%>%
+    select(gene, condition, contrast, base_mean = baseMean,
+           lfc = log2FoldChange, padj, diff_exp)
+  
+  row.names(dx) <- NULL
+  return(dx)
+}
+```
+```{r}
+DE_each_group <- bind_rows(
+  make_df_for_each_focal_comp(DEGs_condA, "A", 0.001),
+  make_df_for_each_focal_comp(DEGs_condB, "B", 0.001),
+  make_df_for_each_focal_comp(DEGs_condC, "C", 0.001),
+  make_df_for_each_focal_comp(DEGs_condD, "D", 0.001),
+  make_df_for_each_focal_comp(DEGs_condE, "E", 0.001),
+  make_df_for_each_focal_comp(DEGs_condF, "F", 0.001),
+  make_df_for_each_focal_comp(DEGs_condG, "G", 0.001),
+  make_df_for_each_focal_comp(DEGs_condH, "H", 0.001),
+  make_df_for_each_focal_comp(DEGs_condI, "I", 0.001),
+  make_df_for_each_focal_comp(DEGs_condL, "L", 0.001)
+)
+```
+
+Here are the numbers of genes up- and down-regulated in each group, relative to the rest of the life cycle. Some stages, like the end of the life cycle, are characterized by more differentially expressed genes.
+
+```{r}
+DE_numbers_by_grp <- DE_each_group%>%
+  group_by(condition)%>%
+  summarise(upreg = sum(diff_exp == "up", na.rm = T),
+            downreg = sum(diff_exp == "down", na.rm = T),
+            noDE = sum(diff_exp == "no", na.rm = T),
+            total_tested = sum(!is.na(padj)))
+DE_numbers_by_grp
+```
+
+Usually, when more genes are upregulated in a stage, there are also more genes downregulated. However, some stages involve upregulation of many unique genes, like the final reproductive stage ('L').
+
+```{r}
+ggplot(DE_numbers_by_grp, aes(downreg, upreg)) +
+  geom_abline() +
+  geom_label(aes(label = condition))
+```
+
+A classic way to visualize the table above is a volcano plot, with the effect size (log fold change) on the x-axis and the p-value on the y-axis. Here are those plots separated by developmental stage.
+
+```{r}
+library("scales")
+reverselog_trans <- function(base = exp(1)) {
+    trans <- function(x) -log(x, base)
+    inv <- function(x) base^(-x)
+    trans_new(paste0("reverselog-", format(base)), trans, inv, 
+              log_breaks(base = base), 
+              domain = c(1e-100, Inf))
+}
+```
+```{r}
+# volcano plot
+ggplot(DE_each_group%>%
+         filter(!is.na(padj))%>%
+         mutate(padj = if_else(padj < 1e-60, 1e-60, padj)), 
+       aes(x = lfc, y = padj, color = diff_exp)) + 
+  geom_point(alpha = 0.1) +
+  scale_y_continuous(trans = reverselog_trans(10)) +
+  scale_x_continuous(limits = c(-10,10)) +
+  facet_wrap(~condition, nrow = 2) +
+  guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  theme(panel.grid.minor = element_blank())
+```
+
+Some of the upregulated and downregulated genes should be shared among stages, e.g. upregulated in the first two developmental stages. Therefore, we calculated the proportion of genes that are shared among the up and down regulated genes for all pairwise combinations of stages.
+
+```{r}
+# make diff express var wide at gene level
+DE_each_group_wide <- DE_each_group%>%
+  select(gene, condition, diff_exp)%>%
+  pivot_wider(names_from = condition, values_from = diff_exp)
+
+# sum the cases for when two genes are up or down-regulated in two treatments
+tot_both <- function(v1, v2){sum(!is.na(v1) & !is.na(v2), na.rm=T)}
+upreg_both <- function(v1, v2){sum(v1=="up" & v2=="up", na.rm=T)}
+downreg_both <- function(v1, v2){sum(v1=="down" & v2=="down", na.rm=T)}
+
+DE_tot_shared <- DE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., tot_both)
+
+DE_up_shared <- DE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., upreg_both)
+
+DE_down_shared <- DE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., downreg_both)
+
+# calc the prop of DE genes shared in two treatments
+upreg_both <- function(v1, v2){
+  sum(v1=="up" & v2=="up", na.rm=T) / sum(v1=="up" | v2=="up", na.rm=T)}
+
+downreg_both <- function(v1, v2){
+  sum(v1=="down" & v2=="down", na.rm=T) / sum(v1=="down" | v2=="down", na.rm=T)}
+
+DE_up_shared2 <- DE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., upreg_both)
+
+DE_down_shared2 <- DE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., downreg_both)
+
+# make long again
+DE_tot_shared <- DE_tot_shared%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "total_tested")
+  # filter(term <= cond) # take lower tri
+DE_up_shared <- DE_up_shared%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "upreg")
+DE_down_shared <- DE_down_shared%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "downreg")
+DE_up_shared2 <- DE_up_shared2%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "upreg_prop")
+DE_down_shared2 <- DE_down_shared2%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "downreg_prop")
+
+DE_pairwise_mat_long <- left_join(DE_tot_shared, DE_up_shared)%>%
+  left_join(., DE_down_shared)%>%
+  left_join(., DE_up_shared2)%>%
+  left_join(., DE_down_shared2)
+
+```
+
+```{r}
+DE_pairwise_mat_long$upreg[
+  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp$upreg
+
+DE_pairwise_mat_long$downreg[
+  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp$downreg
+
+DE_pairwise_mat_long$total_tested[
+  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp$total_tested
+```
+
+All pairwise comparisons were summarized in a table like this (just the first entries shown). For example, of the genes upregulated in either A or B, `r DE_pairwise_mat_long%>%filter(term=="A", cond=="B")%>%.$upreg` were shared, or `DE_pairwise_mat_long%>%filter(term=="A", cond=="B")%>%.$upreg_prop%>%round(., 2) * 100`% of the total.
+
+```{r}
+head(DE_pairwise_mat_long)
+```
+
+```{r}
+DE_pairwise_mat_plot <- bind_rows(
+  DE_pairwise_mat_long%>%
+    filter(term == cond)%>%
+    select(term, cond, shared_prop = upreg_prop, upreg, downreg),
+  DE_pairwise_mat_long%>%
+    filter(term > cond)%>%
+    select(term, cond, shared_prop = upreg_prop),
+  DE_pairwise_mat_long%>%
+    filter(term < cond)%>%
+    select(term, cond, shared_prop = downreg_prop)
+)
+```
+
+These pairwise comparisons can be plotted as a matrix. The diagonal shows the number of significantly up- and down-regulated genes in the stage. Values above the diagonal show the proportion of up-regulated genes in the two stages that are shared. By contrast, the values below the diagonal show the proportion of shared down-regulated genes. It is clear that stages close in time (near the diagonal) have more similar gene expression (i.e. higher proportions of shared genes). 
+
+```{r}
+x_ax_lab <- c("free", "cop-inf", "cop-grow", "cop-trans", "fish-inf", "fish-grow", "fish-grow2", "fish-trans", "bird-inf", "bird-repr")
+
+ggplot(DE_pairwise_mat_plot%>%
+         mutate(prop_chr = if_else(is.na(shared_prop), 
+                                   paste0(upreg, "\n", downreg),
+                                   as.character(round(shared_prop, 2))),
+                cond = fct_rev(cond)),
+       aes(x = term, y = cond, fill = shared_prop)) +
+  geom_tile(color = "gray") +
+  geom_text(aes(label = prop_chr)) +
+  scale_fill_distiller(name = "Proportion",
+                       palette = "Reds", direction = 1, na.value = "white") +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90),
+                   expand = c(0,0)) +
+  scale_y_discrete(labels = rev(x_ax_lab), 
+                   expand = c(0,0)) +
+  theme(axis.title = element_blank(),
+        # axis.text.y = element_blank()
+        )
+```
+
+```{r}
+# # randomly sample degs to roughly estimate what proportion would be shared between two random groups
+# degs <- int_condition%>%
+#   filter(padj < p_thresh)%>%row.names(.)
+# s1 <- sample(degs, 900)
+# s2 <- sample(degs, 2100)
+# sum(s1 %in% s2)/n_distinct(c(s1,s2))
+```
+
+Of particular interest are genes that are up- or down-regulated in similar functional stages. Here are the three "infecting" stages. They do not share many upregulated genes. However, the copepod-infecting and fish-infecting stages share some downregulated genes.
+
+```{r}
+DE_pairwise_mat_long%>%
+  filter(term %in% c("B", "E", "I"), cond %in% c("B", "E", "I"))
+```
+It is hard to judge, though, if this is more or less sharing than expected by chance. A simple way to assess this is to make two random draws from the diff. expressed genes and then see how many genes should be shared among pairs by chance. For example, there were 2293 and 1468 significantly down-regulated genes in the two stages. So, let's take that many genes from the 'universe' of ~11000 differentially expressed genes and then see how many just happen to be shared across the two groups. 
+
+```{r}
+# # randomly sample degs to roughly estimate what proportion would be shared between two random groups
+degs <- int_condition%>%
+  filter(padj < p_thresh)%>%row.names(.) # all DEGs
+# take samples
+for(x in 1:50){
+  s1 <- sample(degs, 2293)
+  s2 <- sample(degs, 1468)
+  exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
+  if(x==1){
+    out_v <- exp_p
+  } else {
+    out_v <- c(out_v, exp_p)
+  }
+}
+summary(out_v)
+```
+
+This simple test suggests about 8 or 9% of the genes should be shared just by chance. The actual value is a little bit higher, suggesting that invasion may involve downregulating some of the same genes.
+
+Here is the same table but for growing stages.
+
+```{r}
+DE_pairwise_mat_long%>%
+  filter(term %in% c("C", "F", "G"), cond %in% c("C", "F", "G"))
+```
+
+The two stages in sticklebacks (F and G) are quite similar. The stage in copepods and first one in fish (C and F) also share a fair number of upregulated genes (8%). However, this level of sharing is not much higher than you would expect by chance.
+
+```{r}
+# take samples
+for(x in 1:50){
+  s1 <- sample(degs, 1425)
+  s2 <- sample(degs, 1549)
+  exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
+  if(x==1){
+    out_v <- exp_p
+  } else {
+    out_v <- c(out_v, exp_p)
+  }
+}
+summary(out_v)
+```
+
+Finally, here is the table for transmission stages. The initial coracidia (A) has a quite different profile compared to the stages in copepods and fish (D, H).
+
+```{r}
+DE_pairwise_mat_long%>%
+  filter(term %in% c("A", "D", "H"), cond %in% c("A", "D", "H"))
+```
+
+But the 5% overlap in upregulated genes between fish and copepod transmission stages is actually less than we would expect by chance.
+
+```{r}
+# take samples
+for(x in 1:50){
+  s1 <- sample(degs, 932)
+  s2 <- sample(degs, 2103)
+  exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
+  if(x==1){
+    out_v <- exp_p
+  } else {
+    out_v <- c(out_v, exp_p)
+  }
+}
+summary(out_v)
+```
+
+We can also extract these genes. Here are the first few genes that were upregulated in the transmission stages in both copepods and fish.
+
+```{r}
+DE_each_group%>%
+  filter(condition %in% c("H", "D"), !is.na(padj))%>%
+  select(gene, condition, diff_exp)%>%
+  pivot_wider(names_from = condition, values_from = diff_exp)%>%
+  filter(H=="up", D=="up")%>%.$gene%>%head()
+```
+
+The table listing the up- and down-regulated genes in each group was written to file.
+
+```{r}
+write.csv(DE_each_group, file = "../data/DEGs_by_devo_stage.csv", row.names = F)
+```
+
+Finally, a note of caution about the DEGs. This [paper](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-022-02648-4) shows how DESeq2 may be anticonservative and impacted by outliers (which is one reason that a rather stringent, low p-value was chosen). They further suggest that wilcoxon rank tests may be a more appropriate way to measure DGE, though our sample sizes per group may be on the low size for those non-parametric tests. Still, let's quickly examine how big of a problem this might be. Using just the subset of ~11000 genes that appear DE at some life stage (i.e. were significant in the full model), we can compare the first two developmental stages, which were rather similar. For every gene, we calculate a wilcoxon test.
+
+```{r}
+conditions <- SScolData%>%
+  filter(Condition %in% c("ConditionA", "ConditionB"))
+samp_names <- conditions$Unique_name
+cond_fac <- conditions$Condition
+cond_fac <- factor(t(cond_fac))
+
+count_df_pair <- SScountdf[degs, samp_names]
+
+pvalues_wilc_AB <- sapply(1:nrow(count_df_pair),function(i){
+     data<-cbind.data.frame(gene=as.numeric(t(count_df_pair[i,])), cond_fac)
+     p=wilcox.test(gene~cond_fac, data, correct = F, exact = F)$p.value
+     return(p)
+   })
+pvalues_wilc_AB_fdr <- p.adjust(pvalues_wilc_AB, method = "fdr")
+```
+
+Here are the number of genes considered to differ significantly (p < 0.05) by the wilcoxon test.
+
+```{r}
+sum(pvalues_wilc_AB < 0.05, na.rm = T)
+```
+
+This of course decreases substantially after applying the FDR correction, in fact no genes are considered DE after this correction.
+
+```{r}
+sum(pvalues_wilc_AB_fdr < 0.05, na.rm = T)
+```
+
+We can compare this to the DESeq model. We extract the contrasts between the first two stages. Few genes are diff. expressed at the same significance threshold.
+
+```{r}
+DEGs_condA_vs_B <- results(ConditionM3_noLRT, contrast = condA - condB)
+
+dge_AB <- make_df_for_each_focal_comp(DEGs_condA_vs_B, "AB", 0.05)
+
+table(dge_AB$diff_exp)
+```
+
+Even if few genes pass the significance threshold, we might expect the p-values from the DESeq model and the wilcoxon models to be correlated. Here's that pattern. Low p-values from one method are often associated with low values from the other method, though this is not as clearly the case for higher values.
+
+```{r}
+dge_AB <- dge_AB%>%
+  filter(gene %in% degs)%>%
+  mutate(pval_wilc = pvalues_wilc_AB_fdr)
+
+ggplot(dge_AB, aes(pval_wilc, padj)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = F) +
+  scale_x_log10() + scale_y_log10() +
+  coord_cartesian(
+    # xlim = c(0.001, 1), 
+    ylim = c(0.001, 1))
+```
+
+In any case, the spearman correlation between p-values is significant, which is reassuring that the two tests both responsive to differences.
+
+```{r}
+cor.test(dge_AB$padj, dge_AB$pval_wilc, method = "spearman", use = "pairwise")
+```
+
+Since the first two developmental stages were rather similar, we can compare the first and third stage (i.e. coracidia vs growing in copepods). 
+
+```{r}
+conditions <- SScolData%>%
+  filter(Condition %in% c("ConditionA", "ConditionC"))
+samp_names <- conditions$Unique_name
+cond_fac <- conditions$Condition
+cond_fac <- factor(t(cond_fac))
+
+count_df_pair <- SScountdf[degs, samp_names]
+
+pvalues_wilc_AC <- sapply(1:nrow(count_df_pair),function(i){
+     data<-cbind.data.frame(gene=as.numeric(t(count_df_pair[i,])), cond_fac)
+     p=wilcox.test(gene~cond_fac, data, correct = F, exact = F)$p.value
+     return(p)
+   })
+pvalues_wilc_AC_fdr <- p.adjust(pvalues_wilc_AC, method = "fdr")
+```
+
+Here are the number of genes considered to differ significantly (p < 0.05) by the wilcoxon test.
+
+```{r}
+sum(pvalues_wilc_AC < 0.05, na.rm = T)
+```
+
+Again, all of these are removed after applying the FDR correction.
+
+```{r}
+sum(pvalues_wilc_AC_fdr < 0.05, na.rm = T)
+```
+
+Let's compare this to the DESeq model. The model noted more DEGs than the wilcoxon test did.
+
+```{r}
+DEGs_condA_vs_C <- results(ConditionM3_noLRT, contrast = condA - condC)
+
+dge_AC <- make_df_for_each_focal_comp(DEGs_condA_vs_C, "AC", 0.05)
+
+table(dge_AC$diff_exp)
+```
+
+However, the p-values are correlated, they are just more significant in the DESeq models.
+
+```{r}
+dge_AC <- dge_AC%>%
+  filter(gene %in% degs)%>%
+  mutate(pval_wilc = pvalues_wilc_AC,
+         pval_wilc2 = pvalues_wilc_AC_fdr)
+ggplot(dge_AC, aes(pval_wilc2, padj)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = F) +
+  scale_x_log10() + scale_y_log10() +
+  coord_cartesian(
+    xlim = c(0.01, 1), 
+    ylim = c(0.0001, 1))
+# # same plot but with unadjusted pvals from wilcoxon test
+# ggplot(dge_AC, aes(pval_wilc, padj)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth(se = F) +
+#   scale_x_log10() + scale_y_log10() +
+#   coord_cartesian(
+#     xlim = c(0.001, 1), 
+#     ylim = c(0.00001, 1))
+```
+
+The spearman correlation between p-values is much clearer. 
+
+```{r}
+cor.test(dge_AC$padj, dge_AC$pval_wilc2, method = "spearman", use = "pairwise")
+```
+
+So, these results are consistent with the idea that there are patterns in some genes being picked out by both tests. The parametric model is simply more likely to consider the pattern significant than the non-parametric wilcoxon test. As a final comparison between these methods, let's compare the first and last developmental stage, which are quite different.
+
+```{r}
+conditions <- SScolData%>%
+  filter(Condition %in% c("ConditionA", "ConditionL"))
+samp_names <- conditions$Unique_name
+cond_fac <- conditions$Condition
+cond_fac <- factor(t(cond_fac))
+
+count_df_pair <- SScountdf[degs, samp_names]
+
+pvalues_wilc_AL <- sapply(1:nrow(count_df_pair),function(i){
+     data<-cbind.data.frame(gene=as.numeric(t(count_df_pair[i,])), cond_fac)
+     p=wilcox.test(gene~cond_fac, data, correct = F, exact = F)$p.value
+     return(p)
+   })
+pvalues_wilc_AL_fdr <- p.adjust(pvalues_wilc_AL, method = "fdr")
+```
+
+Here are the number of genes considered to differ significantly (p < 0.05) by the wilcoxon test.
+
+```{r}
+sum(pvalues_wilc_AL < 0.05, na.rm = T)
+```
+
+Many are still significant even after FDR correction.
+
+```{r}
+sum(pvalues_wilc_AL_fdr < 0.05, na.rm = T)
+```
+
+Here are the numbers from the DESeq model. It is quite a bit more.
+
+```{r}
+DEGs_condA_vs_L <- results(ConditionM3_noLRT, contrast = condA - condL)
+
+dge_AL <- make_df_for_each_focal_comp(DEGs_condA_vs_L, "AL", 0.05)
+
+table(dge_AL$diff_exp)
+```
+
+```{r}
+dge_AL <- dge_AL%>%
+  filter(gene %in% degs)%>%
+  mutate(pval_wilc = pvalues_wilc_AL,
+         pval_wilc2 = pvalues_wilc_AL_fdr)
+ggplot(dge_AL, aes(pval_wilc2, padj)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = F) +
+  scale_x_log10() + scale_y_log10() +
+  coord_cartesian(
+    xlim = c(0.001, 1), 
+    ylim = c(0.00001, 1))
+# # unadjust pvals from wilcoxon test
+# ggplot(dge_AL, aes(pval_wilc, padj)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth(se = F) +
+#   scale_x_log10() + scale_y_log10() +
+#   coord_cartesian(
+#     xlim = c(0.001, 1), 
+#     ylim = c(0.00001, 1))
+```
+
+The spearman correlation between p-values is even clearer, suggesting that the DESeq and wilcoxon methods are rather concordant when there are larger differences between pairs of stages.
+
+```{r}
+cor.test(dge_AL$padj, dge_AL$pval_wilc2, method = "spearman", use = "pairwise")
+```

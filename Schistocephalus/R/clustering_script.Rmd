@@ -24,7 +24,6 @@ md <- read.delim(file = "../data/schistoData.txt", header = T) # metadata
 md <- select(md, -X)
 ```
 
-
 There are ~20,000 genes from 72 samples.
 
 ```{r}
@@ -352,6 +351,7 @@ ggplot(gc_expressed_trans_clusters%>%
         axis.title.x = element_blank()
         )
 ```
+
 ## How many clusters
 
 Ten clusters was arbitrary. One way to estimate how many clusters there are in the data is to perform a faster clustering algorithm (kmeans) with different numbers of pre-defined clusters. Then, we can see how the variance within clusters decreases as a function of the number of clusters. Here is the pattern:
@@ -604,63 +604,602 @@ table(clusters$cluster)
 
 # Differentially expressed genes
 
-One possible way to improve clustering would be to use only differentially expressed genes. Let's import the genes that differed in expression between at least two treatments.
+One possible way to improve clustering would be to use only differentially expressed genes. Let's import the genes that differed in expression, as judged by `DESeq2` models.
 
 ```{r}
-gc_degs <- read.csv(file = "../data/DEGsConditionM.csv", sep = " ")
+gc_degs <- read.table(file = "../data/DEGsmodels.csv", header = T, sep = " ") # diff. expressed genes from all models 
+```
+```{r}
+# results from int-only model vs host model
+gc_degs_host <- filter(gc_degs,
+                      Model == "int_host", 
+                      !is.na(padj))
+# results from int-only model vs functional stage model
+gc_degs_func <- filter(gc_degs,
+                      Model == "int_stage", 
+                      !is.na(padj))
+# results from int-only model vs all devo stages model
+gc_degs_all <- filter(gc_degs,
+                      Model == "int_condition", 
+                      !is.na(padj))
+# results from host and function models vs all devo stages model
+gc_degs_host_func <- filter(gc_degs,
+                      Model %in% c("host_condition", "stage_condition"), 
+                      !is.na(padj))
 ```
 
-Here are the number of DEGs at different levels of significance. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
+## DEGs among hosts
+
+We start by just isolating genes that were differentially expressed among hosts. Here are the number of genes where counts were high enough that `DESeq2` performed a LRT:
 
 ```{r}
-gc_degs%>%
+length(gc_degs_host$Gene)
+```
+
+Out of these, this number had low expression levels under our criteria above.
+
+```{r}
+sum(gc_degs_host$Gene %in% low_genes)
+```
+
+These low-expression genes are less likely to be differentially expressed (higher p-values): 
+
+```{r}
+ggplot(gc_degs_host, aes(x = padj+0.00000001)) +
+  geom_density(aes(color = Gene %in% low_genes)) +
+  labs(color = "Low expression") +
+  scale_x_log10()
+```
+
+So, with a conservative p-value threshold, many of these genes will be removed. Here are the number of DEGs at different levels of significance. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
+
+```{r}
+gc_degs_host%>%
   summarize(p0.01 = sum(padj < 0.01),
             p0.001 = sum(padj < 0.001),
             p0.0001 = sum(padj < 0.0001),
-            p0.00001 = sum(padj < 0.00001))
-```
-
-```{r}
-# # number of genes at different cutoffs
-# gc_degs%>%
-#   arrange(desc(padj))%>%
-#   mutate(cum_dist = cume_dist(padj),
-#          genes = row_number())%>%
-#   ggplot(., aes(genes, padj)) +
-#   geom_line() +
-#   # scale_x_log10() +
-#   scale_y_log10(limits = c(0.00000001, 0.05))
+            p0.00001 = sum(padj < 0.00001),
+            p0.000001 = sum(padj < 0.000001))
 ```
 
 Let's only take the genes that had p-values less than 0.0001.
 
 ```{r}
-degs <- filter(gc_degs, padj < 0.0001)%>%row.names()
+degs_host <- filter(gc_degs_host, padj < 0.0001)%>%.$Gene
 ```
 
-Here is an elbow plot, based on kmeans clustering, with those genes.
+Here is an log-transformed elbow plot, based on kmeans clustering, with those genes. There are at least 3 or 4 clusters.
 
 ```{r}
 # function to compute total within-cluster sum of square 
 wss <- function(k) {
   kmeans(
-    gc_expressed_trans[row.names(gc_expressed_trans) %in% degs,],
+    gc_expressed_trans[row.names(gc_expressed_trans) %in% degs_host,],
     k, nstart = 10 )$tot.withinss
 }
 
-# Compute and plot wss for k = 1 to k = 20
-k.values <- 1:20
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
 
 # extract wss for 2-15 clusters
 wss_values <- map_dbl(k.values, wss)
 
 qplot(k.values, wss_values) +
   geom_line() + 
-  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") +
+  scale_x_log10()
 ```
-To make the breaks clearer, here is the log-transformed plot. There are at least 3 clusters.
+
+Now, we filter the count matrix to just the DEGs and we re-calculate the distance matrix, which is then fed into the clustering algorithm (`method = 'ward.D2'`). 
 
 ```{r}
+gene_dist <- dist(
+  # distance matrix for just degs_host
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_host,
+    ]
+  )
+
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
+```
+
+Given the elbow plot, let's take the top 5 clusters.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 5)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster. There are none with very few genes.
+
+```{r}
+table(clusters$cluster)
+```
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+With the DEGs, the patterns are similar to the full dataset, though perhaps more pronounced. The genes that were not assigned to a cluster (NA) are genes that are not strongly differentially expressed.
+
+```{r}
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup(), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = z_score), alpha = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+Some of the trends might be easier to assess if we plot the expression profiles for individual genes. Let's sample 100 random genes from each cluster and plot them. 
+
+```{r}
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=100)%>%.$gene
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+This uncovers a little more nuance within the clusters, such that we can see why some were clusters were split (e.g. more variance at some stages than others). This plot also shows that expression trends are not entirely explained by host, because within hosts expression often changed from one life stage to the next. This suggests that gene expression patterns will be better captured by the full model. But before looking at the full model, let's consider the DEGs among functions.
+
+## DEGs among functions
+
+One model tested which genes were differentially expressed at particular functions, like invasion, growth, transmission, etc. Here are the number of genes where counts were high enough that `DESeq2` performed a LRT:
+
+```{r}
+length(gc_degs_func$Gene)
+```
+
+Here are the number of DEGs at different levels of significance. There are fewer DEGs among functions than among hosts.
+
+```{r}
+gc_degs_func%>%
+  summarize(p0.01 = sum(padj < 0.01),
+            p0.001 = sum(padj < 0.001),
+            p0.0001 = sum(padj < 0.0001),
+            p0.00001 = sum(padj < 0.00001),
+            p0.000001 = sum(padj < 0.000001))
+```
+
+Let's only take the genes that had p-values less than 0.0001.
+
+```{r}
+degs_func <- filter(gc_degs_func, padj < 0.0001)%>%.$Gene
+```
+
+Here is the log-transformed elbow plot, based on kmeans clustering, with those genes. There is maybe only 1 or 2 clusters.
+
+```{r}
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(
+    gc_expressed_trans[row.names(gc_expressed_trans) %in% degs_func,],
+    k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+qplot(k.values, wss_values) +
+  geom_line() + 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") +
+  scale_x_log10()
+```
+
+Now, we filter the count matrix to just the DEGs and we re-calculate the distance matrix, which is then fed into the clustering algorithm (`method = 'ward.D2'`). 
+
+```{r}
+gene_dist <- dist(
+  # distance matrix for just DEGs
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_func,
+    ]
+  )
+
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
+```
+
+For comparison to the host model, we take the top 5 clusters.
+
+```{r}
+clusters <- cutree(gene_hclust, k = 5)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+```
+
+Here are the number of genes in each cluster. Some clusters are relatively small.
+
+```{r}
+table(clusters$cluster)
+```
+
+```{r}
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+```
+
+The expression profiles shows that the first two clusters (which were the largest) are for genes up or down regulated in the reproductive stage.
+
+```{r}
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=100)%>%.$gene
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+The expression profiles clearly suggest that expression does not depend entirely on the hosts or the function. Rather, they can depend on both.
+
+## DEGs among all life stages
+
+Thus, the model with all developmental stages is probably the best. Let's assess this by looking at the number of genes considered differentially expressed by different models.
+
+```{r}
+# table of which model comps identified which genes as significant
+gc_degs_wide <- gc_degs%>%
+  mutate(DEG = if_else(padj < 0.001, "yes", "no"))%>%
+  select(-padj)%>%
+  pivot_wider(names_from = Model, values_from = DEG)
+
+# table of pvalues from all model comps
+gc_degs_wide2 <- gc_degs%>%
+  pivot_wider(names_from = Model, values_from = padj, names_prefix = "pval_")
+gc_degs_wide <- gc_degs_wide%>%
+  left_join(., gc_degs_wide2)
+rm(gc_degs_wide2)
+```
+
+### DEGs, host vs developmental stage
+
+This table shows the number of genes identified as differentially expressed (p < 0.001) among 'hosts' and among 'developmental stages'. A large number of genes (~7000) were considered DE by both models. But the full model considered another ~4000 genes as DE that the host model did not. By contrast, only a small number of genes (75) were considered DE by the host model but not the full model. It is also reassuring that the ~1000 genes with high enough counts to justify a LRT in the full model, but not in the host model, were all not significant.
+
+```{r}
+with(gc_degs_wide, addmargins(table(int_condition, int_host, useNA = "ifany"), margin = c(1,2)))
+```
+
+Of the ~7000 genes that were DE in both models, the p-value was almost always lower in the full model, suggesting that most of these genes do not vary in a purely host-driven way.
+
+```{r}
+with(gc_degs_wide%>%filter(pval_int_host < 0.001),
+     (table(pval_int_condition < pval_int_host, useNA = "ifany")))
+```
+
+The p-values are from model comparisons with an intercept-only model (i.e. host vs int-only, full vs int-only). Thus, the p-value are just a test of total variance explained by the model. A better comparison is how much more variance is explained in the full vs the host-only model. Let's consider that comparison. 
+
+The table rows tally the genes considered DE by the full model (int_condition) whereas the columns are the genes where the full model is an improvement over the host-only model (host_condition). Out of all DE genes (~11000), most (9000) are not purely host-driven, i.e. the full model is an improvement over the host-only model. 
+
+```{r}
+with(gc_degs_wide, addmargins(table(int_condition, host_condition, useNA = "ifany"), margin = c(1,2)))
+```
+
+Still, there are about 2000 DE genes for which the full model was not an improvement. Let's look at the profiles for these genes.
+
+```{r}
+degs_host_pure <- gc_degs_wide%>%
+  filter(int_condition == "yes", host_condition == "no")%>%
+  .$Gene
+```
+
+The log-transformed elbow plot suggests there are only a couple clusters.
+
+```{r}
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(
+    gc_expressed_trans[row.names(gc_expressed_trans) %in% degs_host_pure,],
+    k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 15
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
+qplot(k.values, wss_values) +
+  geom_line() + 
+  labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") +
+  scale_x_log10()
+```
+
+Unsurprisingly, these are the genes that are mainly up or down regulated at the end of the life cycle in the in vitro bird.
+
+```{r}
+gene_dist <- dist(
+  # distance matrix for just DEGs
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_host_pure,
+    ]
+  )
+
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
+
+clusters <- cutree(gene_hclust, k = 5)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+
+# table(clusters$cluster)
+
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=100)%>%.$gene
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+
+### DEGs, function vs devo stage
+
+Now, we compare the genes identified as differentially expressed (p < 0.001) among 'functional stages' and among 'developmental stages'. Like the host model comps above, large number of genes (~6000) were considered DE by both models. The full model considered another ~5500 genes as DE that the stage model did not, which was more than in the host model. By contrast, few genes (81) were considered DE by the stage model but not the full model. Again, the genes with high enough counts to justify a LRT in the full model (~750), but not in the simpler stage model, were all not significant.
+
+```{r}
+with(gc_degs_wide, addmargins(table(int_condition, int_stage, useNA = "ifany"), margin = c(1,2)))
+```
+
+For almost all of the genes that were DE in both models, the p-value was lower in the full model, suggesting that most of these genes do not vary in a purely function-driven way.
+
+```{r}
+with(gc_degs_wide%>%filter(pval_int_stage < 0.001),
+     (table(pval_int_condition < pval_int_stage, useNA = "ifany")))
+```
+
+We also directly compared the stage-only and full models and found patterns similar to the host-only vs full comparison. The table below tallies the genes considered DE by the full model (int_condition) vs those genes where the full model is an improvement over the function-only model (stage_condition). Most DE genes (~9000 out of 11000) are not purely function-driven, i.e. the full model was an improvement. 
+
+```{r}
+with(gc_degs_wide, addmargins(table(int_condition, stage_condition, useNA = "ifany"), margin = c(1,2)))
+```
+
+But as above, there are about 2000 DE genes for which the full model was not an improvement. These are probably genes upregulated in "reproducing" stages.
+
+```{r}
+degs_func_pure <- gc_degs_wide%>%
+  filter(int_condition == "yes", stage_condition == "no")%>%
+  .$Gene
+```
+
+The expression profiles are consistent with that.
+
+```{r}
+gene_dist <- dist(
+  # distance matrix for just DEGs
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_func_pure,
+    ]
+  )
+
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
+
+clusters <- cutree(gene_hclust, k = 5)
+
+clusters <- clusters%>%
+  enframe() %>% 
+  rename(gene = name, cluster = value)
+
+# table(clusters$cluster)
+
+# add cluster to main data
+gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
+  left_join(., clusters)
+
+gene100_perclust <- gc_expressed_trans_clusters%>%
+  ungroup()%>%
+  mutate(cluster = as.factor(cluster))%>%
+  select(gene, cluster)%>%
+  distinct()%>%
+  group_by(cluster)%>%
+  slice_sample(n=100)%>%.$gene
+
+ggplot(gc_expressed_trans_clusters%>%
+         ungroup()%>%
+         filter(gene %in% gene100_perclust), 
+       aes(x = grp, y = z_score)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "red", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+  facet_wrap(~ as.factor(cluster)) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )
+```
+
+### All DEGs expression profiles
+
+Here are the number of genes where counts were high enough that `DESeq2` performed a LRT:
+
+```{r}
+length(gc_degs_all$Gene)
+```
+
+Out of these, this number had low expression levels under our criteria above.
+
+```{r}
+sum(gc_degs_all$Gene %in% low_genes)
+```
+
+Moreover, they are the genes that are not differentially expressed: 
+
+```{r}
+ggplot(gc_degs_all, aes(x = padj+0.00000001)) +
+  geom_density(aes(color = Gene %in% low_genes)) +
+  labs(color = "Low expression") +
+  scale_x_log10()
+```
+
+So, when we take a conservative p-value threshold, many of these genes will be removed. Here are the number of DEGs at different levels of significance. This is higher than the host-only or stage-only model. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
+
+```{r}
+gc_degs_all%>%
+  summarize(p0.01 = sum(padj < 0.01),
+            p0.001 = sum(padj < 0.001),
+            p0.0001 = sum(padj < 0.0001),
+            p0.00001 = sum(padj < 0.00001),
+            p0.000001 = sum(padj < 0.000001))
+```
+
+```{r}
+# # number of genes at different cutoffs
+# gc_degs_all%>%
+#   arrange(desc(padj))%>%
+#   mutate(cum_dist = cume_dist(padj),
+#          genes = row_number())%>%
+#   ggplot(., aes(genes, padj)) +
+#   geom_line() +
+#   # scale_x_log10() +
+#   scale_y_log10(limits = c(0.00000000000000000001, 1))
+```
+
+Let's only take the genes that had p-values less than 0.0001.
+
+```{r}
+degs_all <- filter(gc_degs_all, padj < 0.0001)%>%.$Gene
+```
+
+Here is an log-transformed elbow plot, based on kmeans clustering, with those genes. There are at least 4 clusters.
+
+```{r}
+# function to compute total within-cluster sum of square 
+wss <- function(k) {
+  kmeans(
+    gc_expressed_trans[row.names(gc_expressed_trans) %in% degs_all,],
+    k, nstart = 10 )$tot.withinss
+}
+
+# Compute and plot wss for k = 1 to k = 20
+k.values <- 1:15
+
+# extract wss for 2-15 clusters
+wss_values <- map_dbl(k.values, wss)
+
 qplot(k.values, wss_values) +
   geom_line() + 
   labs(x = "Number of clusters K", y = "Total within-clusters sum of squares") +
@@ -673,17 +1212,17 @@ Now, we filter the count matrix to just the DEGs and we re-calculate the distanc
 gene_dist <- dist(
   # distance matrix for just DEGs
   gc_expressed_trans[
-    row.names(gc_expressed_trans) %in% degs,
+    row.names(gc_expressed_trans) %in% degs_all,
     ]
   )
 
-gene_hclust <- hclust(gene_dist, method = "complete")
+gene_hclust <- hclust(gene_dist, method = "ward.D2")
 ```
 
-Given the elbow plot, let's take the top 9 clusters.
+Given the elbow plot, let's take the top 8 clusters.
 
 ```{r}
-clusters <- cutree(gene_hclust, k = 9)
+clusters <- cutree(gene_hclust, k = 8)
 
 clusters <- clusters%>%
   enframe() %>% 
@@ -731,7 +1270,7 @@ ggplot(gc_expressed_trans_clusters%>%
         )
 ```
 
-Some of the trends might be easier to assess if we plot the expression profiles for individual genes. Let's sample 100 random genes from each cluster and plot them. This uncovers a little more nuance within the clusters, such that we can see why some were clusters were split (e.g. more variance at some stages than others).
+Some of the trends might be easier to assess if we plot the expression profiles for individual genes. Let's sample 100 random genes from each cluster and plot them. This uncovers a little more nuance within the clusters, such that we can see why some clusters were split (e.g. more variance at some stages than others).
 
 ```{r}
 gene100_perclust <- gc_expressed_trans_clusters%>%
@@ -767,6 +1306,7 @@ ggplot(gc_expressed_trans_clusters%>%
         axis.title.x = element_blank()
         )
 ```
+
 New patterns do not obviously emerge when the number of clusters is expanded.
 
 ```{r}
@@ -814,61 +1354,205 @@ ggplot(gc_expressed_trans_clusters%>%
         )
 ```
 
-As we saw above, the ward clustering algorithm seemed to perform well. Thus, let's try that on the same subset of DEGs, taking the top 15 clusters.
+## Heatmap
+
+Some of the clusters in the previous plot are rather similar. A common way to visualize clusters, such that similar ones are next to each other, are heatmaps. I used this [approach](https://genviz.org/module-04-expression/0004/02/01/DifferentialExpression/) to build a heatmap.
 
 ```{r}
+library(ggdendro)
+library(gtable)
+library(grid)
+library(gridExtra)
+```
+
+I picked the 7000 genes that were most strongly differentially expressed across life stages. Then, I reran the clustering algorithm and produced a dendrogram.
+
+```{r}
+# pick most DE genes
+degs_top1000 <- gc_degs_all%>%
+  arrange(padj)%>%
+  slice_head(n = 7000)%>%
+  .$Gene
+
+# rerun clustering algorithm
+gene_dist <- dist(
+  # distance matrix for just DEGs
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_top1000,
+    ]
+  )
+
 gene_hclust <- hclust(gene_dist, method = "ward.D2")
+
+# extract order of genes in cluster
+gene_order <- row.names(
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_top1000,
+    ][gene_hclust$order,]
+  )
+
+# create dendrogram from clustering output
+dendro <- as.dendrogram(gene_hclust)
+dendro_data <- segment(dendro_data(dendro, type = "rectangle"))
+dendrogram <- ggplot(dendro_data) + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) + 
+  scale_x_continuous(expand=c(0, 0)) + scale_y_reverse() +
+  coord_flip() + 
+  theme(panel.border = element_blank()) +
+  theme_dendro() 
+# dendrogram
+```
+
+The normalized expression data for these genes need to be rearranged into long format for plotting.
+
+```{r}
+# rearrange data for plotting
+gc_expressed_trans_long_hm <- as.data.frame(
+  gc_expressed_trans[
+    row.names(gc_expressed_trans) %in% degs_top1000,
+    ]
+  )
+gc_expressed_trans_long_hm$gene <- row.names(gc_expressed_trans_long_hm)
+
+gc_expressed_trans_long_hm <- gc_expressed_trans_long_hm%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "trans_counts")%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = sample))
+
+gc_expressed_trans_long_hm <- gc_expressed_trans_long_hm%>%
+  left_join(., 
+            md%>%select(Unique_name, func=Stage, host=Host),
+            by = c("sample" = "Unique_name")
+            )
+
+gc_expressed_trans_long_hm <- gc_expressed_trans_long_hm%>%
+   mutate(gene = factor(gene, levels = gene_order))
+
+dx <- data.frame(grp = unique(gc_expressed_trans_long_hm$grp),
+                    label = x_ax_lab)
+
+gc_expressed_trans_long_hm <- left_join(gc_expressed_trans_long_hm, dx)
+```
+
+The final plot is a conglomeration of several sub-elements, including the dendrogram, a heatmap, and tiles that distinguish the groups.
+
+```{r}
+# make heatmap
+heatmap <- ggplot(gc_expressed_trans_long_hm, aes(x = sample, y = gene)) +
+  geom_tile(aes(fill = trans_counts)) +
+  scale_fill_distiller(type = "div", palette = "RdBu") +
+  theme(axis.text = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid = element_blank()) +
+  labs(fill = "z-score")
+# heatmap
 ```
 
 ```{r}
-clusters <- cutree(gene_hclust, k = 15)
-
-clusters <- clusters%>%
-  enframe() %>% 
-  rename(gene = name, cluster = value)
-
-# add cluster to main data
-gc_expressed_trans_clusters <- gc_expressed_trans_long%>%
-  left_join(., clusters)
-
-gene100_perclust <- gc_expressed_trans_clusters%>%
-  ungroup()%>%
-  mutate(cluster = as.factor(cluster))%>%
-  select(gene, cluster)%>%
-  distinct()%>%
-  group_by(cluster)%>%
-  slice_sample(n=100)%>%.$gene
+# make dataset for tiles above heatmap
+dat_bars_above_heatmap <- gc_expressed_trans_long_hm%>%
+         select(sample, label)%>%
+         distinct()%>%
+         mutate(label = fct_relevel(label, x_ax_lab))
+dat_bars_above_heatmap2 <- dat_bars_above_heatmap%>%
+  mutate(rank = rank(sample))%>%
+  group_by(label)%>%
+  summarise(rank = median(rank))
 ```
-
-
-The variance within clusters is smaller than with the complete linkage approach, so it seems to be performing well. Some trends, though, may be redundant.
 
 ```{r}
-ggplot(gc_expressed_trans_clusters%>%
-         ungroup()%>%
-         filter(gene %in% gene100_perclust), 
-       aes(x = grp, y = z_score)) +
-  # background for copepod stage
-  annotate("rect",
-           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
-           fill = "gray") +
-  # background for bird stages
-  annotate("rect",
-           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
-           fill = "gray") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_line(aes(group = gene), alpha = 0.1) +
-  geom_line(stat = "summary",
-            fun = "median", colour = "red", size = 1, 
-            aes(group = 1)) +
-  scale_x_discrete(labels = x_ax_lab, 
-                   guide = guide_axis(angle = 90)) +
-  scale_color_distiller(type = "div", palette = "RdBu") +
-  facet_wrap(~ as.factor(cluster)) +
-  theme(panel.grid.major = element_blank(),
-        axis.title.x = element_blank()
-        )
+sample_map <- ggplot(gc_expressed_trans_long_hm%>%
+         select(sample, label)%>%
+         distinct()%>%
+         mutate(label = fct_relevel(label, x_ax_lab)), 
+       aes(x=sample, y=1, fill=label)) + 
+  geom_tile() + 
+  geom_text(data = dat_bars_above_heatmap2,
+            aes(x = rank, y = 1, label = label),
+            angle = 90) +
+  scale_x_discrete(expand=c(0, 0)) + 
+  scale_y_discrete(expand=c(0, 0)) + 
+  scale_fill_manual(name="Tissue", 
+                    values=rep(c("white","gray"), 5)) + 
+  guides(fill = F) +
+  theme_void()
+  
+# sample map
 ```
+
+After making the sub-elements, they need to be aligned and glued together. For this they are converted to 'grobs'.
+
+```{r}
+################################################################################
+################# Step 3: convert to everything to grobs #######################
+
+# note! before this step as mentioned you might need to alter the expand parameters in the plot scales for all the plots we do that here
+
+# convert the heatmap to a grob
+heatmapGrob <- ggplotGrob(heatmap + scale_x_discrete(expand=c(0, 0)) + scale_y_discrete(expand=c(0, 0)))
+
+# convert the dendrogram to a grob
+# note! we flipped the axis above so the x-axis is now displayed as what we would think of as the y-axis
+geneDendrogramGrob <- ggplotGrob(dendrogram + scale_x_discrete(expand=c(0, 0)))
+sampleClinicalGrob <- ggplotGrob(sample_map)
+```
+
+
+
+```{r}
+################################################################################
+######### Step 4: align the gene dendrograms to match the heatmap ##############
+
+# check that the both the heatmap and gene dendrogram have the same number of vertical elements
+#length(heatmapGrob$heights) == length(geneDendrogramGrob$heights)
+
+# make sure every height between the two grobs is the same
+maxHeight <- unit.pmax(geneDendrogramGrob$heights, heatmapGrob$heights)
+geneDendrogramGrob$heights <- as.list(maxHeight)
+heatmapGrob$heights <- as.list(maxHeight)
+```
+
+```{r}
+################################################################################
+# Step 4b: we have a new heatmap so we need to re-align the horizontal elements #
+
+# repeat the steps in the tutorial
+
+# check the widths of each grob
+#heatmapGrob$widths
+#sampleClinicalGrob$widths
+
+# add in the missing columns
+sampleClinicalGrob <- gtable_add_cols(sampleClinicalGrob, heatmapGrob$widths[7], 6)
+sampleClinicalGrob <- gtable_add_cols(sampleClinicalGrob, heatmapGrob$widths[8], 7)
+
+# make sure every width between all grobs is the same
+maxWidth <- unit.pmax(sampleClinicalGrob$widths, heatmapGrob$widths)
+sampleClinicalGrob$widths <- as.list(maxWidth)
+heatmapGrob$widths <- as.list(maxWidth)
+sampleClinicalGrob$widths <- as.list(maxWidth)
+```
+
+Here is the final product, showing the major clusters.
+
+```{r}
+################################################################################
+############### Step 5: create a blank panel ###################################
+
+# we can use grid graphics for this
+grid.newpage()
+blankPanel <- grid.rect(gp=gpar(col="white"))
+
+################################################################################
+############### Step 6: Arrange the final result ###############################
+
+# arrange all the plots together
+finalGrob_v2 <- arrangeGrob(blankPanel, sampleClinicalGrob, geneDendrogramGrob, heatmapGrob, ncol=2, nrow=2, widths=c(1,5), heights=c(1,6))
+
+# draw the final result
+grid.draw(finalGrob_v2)
+```
+
 
 # *Clust* algorithm
 
@@ -977,6 +1661,7 @@ n_distinct(clust_out_degs$cluster)
 gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
   left_join(., clust_out_degs)
 ```
+
 The plot of this single cluster is not very convincing. 
 
 ```{r}
@@ -1007,4 +1692,4 @@ ggplot(gc_expressed_trans_clusters2%>%
 
 # Summary
 
-In conclusion...
+In conclusion, some of the largest changes in gene expression occur at the beginning and end of the life cycle. Most changes in gene expression cannot be neatly attributed to changing the host or changing the function. Rather, gene expression can vary within hosts and among functionally similar stages in different hosts.
