@@ -262,7 +262,7 @@ DEGsmodels <- dplyr::lst(int_host, int_stage, host_condition, stage_condition, i
   bind_rows(.id = "Model") %>% 
   select(Gene, Model, padj)
 row.names(DEGsmodels) <- NULL
-write.table(DEGsmodels, file="../data/DEGsmodels.csv")
+# write.table(DEGsmodels, file="../data/DEGsmodels.csv")
 ```
 
 By plotting the distribution of adjusted p-values, we can get a feel for which models were the best. P-values were lowest in the condition model (with all devo stages) and highest in the functional stage model.
@@ -1280,7 +1280,7 @@ DE_spear_long_plot%>%
 The genes that are up- and down-regulated at each stage, relative to the rest of the life cycle, are to be used in the enrichment analyses, so the table listing the up- and down-regulated genes in each group was written to file.
 
 ```{r}
-write.csv(DE_each_group2, file = "../data/DEGs_by_devo_stage.csv", row.names = F)
+# write.csv(DE_each_group2, file = "../data/DEGs_by_devo_stage.csv", row.names = F)
 ```
 
 # DESeq2 vs Wilcoxon tests
@@ -1489,7 +1489,7 @@ cor.test(dge_AL$padj, dge_AL$pval_wilc2, method = "spearman", use = "pairwise")
 ```
 
 ```{r}
-save.image(file = "DEG_model_script_out.RData")
+# save.image(file = "DEG_model_script_out.RData")
 sessionInfo()
 ```
 
