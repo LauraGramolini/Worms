@@ -29,28 +29,42 @@ library(topGO)
 
 For now we use the table that came from the first model testing.
 ```{r}
-DEGs <- read.csv("~/GitHub/Worms/Schistocephalus/data/GO_inputfile.csv", header=TRUE, sep="")
+DEGs <- read.csv("~/GitHub/Worms/Schistocephalus/data/DEGs_by_devo_stage.csv", header=TRUE, sep=",")
 ```
 
-Prepare the datasets:
+Split the datasets:
 ```{r}
-DEGs_host <- filter(DEGs, Model == "int_host")
-DEGs_stage <- filter(DEGs, Model == "int_stage")
-DEGs_hostcondition <- filter(DEGs, Model == "host_condition")
-DEGs_stagecondition <- filter(DEGs, Model == "stage_condition")
-DEGs_condition <- filter(DEGs, Model == "int_condition")
+ConditionA <- filter(DEGs, condition == "A")
+ConditionB <- filter(DEGs, condition == "B")
+ConditionC <- filter(DEGs, condition == "C")
+ConditionD <- filter(DEGs, condition == "D")
+ConditionE <- filter(DEGs, condition == "E")
+ConditionF <- filter(DEGs, condition == "F")
+ConditionG <- filter(DEGs, condition == "G")
+ConditionH <- filter(DEGs, condition == "H")
+ConditionI <- filter(DEGs, condition == "I")
+ConditionL <- filter(DEGs, condition == "L")
+```
+
+Here prepare all the datasets for allGenes object!!!
+```{r}
+
 ```
 
 Create the gene universe file (allGenes in topGO):
-This is just an example because I think this is not the complete list
 ```{r}
-allGenesdf <- filter(DEGs_condition, padj != "NA") %>% 
-  select(Gene, padj)
+allGenesdf <- filter(ConditionA, padj != "NA") %>% 
+  select(gene, padj)
+
+#rename the genes
+allGenesdf$gene <- gsub(pattern = "gene:", replacement = "", as.name(allGenesdf$gene))
+
 
 allGenes <- as.numeric(allGenesdf$padj)
-names(allGenes) <- allGenesdf$Gene
+names(allGenes) <- allGenesdf$gene
 class(allGenes)
 head(allGenes)
+is.vector(allGenes)
 ```
 
 Create the DEGs file (geneSel in topGO):
@@ -66,17 +80,26 @@ class(topgenes)
 Prepare the functional annotation:
 ```{r}
 #Import annotation file
-cama_anno <- read.csv("/SAN/Lauras_territory/Novaseq/cama/denovo/cama_anno.csv", sep = "\t", header = TRUE)
-##We have to adjust the table with Gene ID (tab) GO1, GO2 ...
-gene2GO <- filter(cama_anno, GOs != "-") %>%  
-  select(query, GOs)
+annotation <- read.csv("/SAN/Lauras_territory/schisto_genome/funanno/schisto_GOanno.csv", sep = "\t", header = TRUE)
 
+##We have to adjust the table with Gene ID (tab) GO1, GO2 ...
+gene2GO <- filter(annotation, GOs != "-") %>%  
+  select(query, GOs)
+  
+
+
+#Adjust the names
+gene2GO$query <- gsub(pattern = "transcript:", replacement = "", as.character(gene2GO$query))
+gene2GO$query <- str_extract(gene2GO$query, "\\w+")
+head(gene2GO)
+                     
+#Remove columns name                     
 names(gene2GO) <- NULL
 #Export the new table
-write.table(gene2GO, file="~/GitHub/Worms/Schistocephalus/data/gene2GOtable.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+write.table(gene2GO, file="~/GitHub/Worms/Schistocephalus/data/gene2GO.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+
 #So I can load it as object
-geneID2GO <- read_file("~/GitHub/Worms/Schistocephalus/data/gene2GOtable.txt")
-head(str(geneID2GO))
+geneID2GO <- readMappings("~/GitHub/Worms/Schistocephalus/data/gene2GO.txt")
 
 ```
 
@@ -86,11 +109,10 @@ head(str(geneID2GO))
 ```{r}
 #First set the parameters
 sampleGOdata <- new("topGOdata",
-                    description = "Simple session", ontology = "MF",
-                    allGenes = allGenes, geneSelectionFun = topDiffGenes,
-                    nodeSize = 10,
-                    annot = annFUN.gene2GO, gene2go = geneID2GO)
-
+                      ontology = "MF", description = "Simple session",
+                      allGenes = allGenes, geneSel = topDiffGenes,
+                      nodeSize = 10,
+                      annot = annFUN.gene2GO, gene2GO = geneID2GO)
 ```
 
 
