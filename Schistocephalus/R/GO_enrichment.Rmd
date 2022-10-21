@@ -67,7 +67,7 @@ head(allGenes)
 is.vector(allGenes)
 ```
 
-Create the DEGs file (geneSel in topGO):
+define the DEGs function (geneSel in topGO):
 ```{r}
 topDiffGenes <- function(allScore) {
 +    return(allScore < 0.001) }
