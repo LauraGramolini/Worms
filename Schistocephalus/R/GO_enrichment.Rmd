@@ -1,0 +1,137 @@
+---
+title: "GO_enrichment"
+author: "Laura Gramolini"
+date: '2022-10-04'
+output: html_document
+---
+
+Here we run the GO enrichment analysis.
+First let's load the package I'm gonna use
+
+```{r}
+#if (!require("BiocManager", quietly = TRUE))
+ #   install.packages("BiocManager")
+#BiocManager::install(version = '3.30')
+
+#BiocManager::install("AnnotationHub")
+
+#BiocManager::install('Rgraphviz', lib="~/R/x86_64-pc-linux-gnu-library/4.2/")
+
+```
+
+
+```{r}
+library(AnnotationDbi)
+library(AnnotationHub)
+library(GO.db)
+library(topGO)
+```
+
+For now we use the table that came from the first model testing.
+```{r}
+DEGs <- read.csv("~/GitHub/Worms/Schistocephalus/data/GO_inputfile.csv", header=TRUE, sep="")
+```
+
+Prepare the datasets:
+```{r}
+DEGs_host <- filter(DEGs, Model == "int_host")
+DEGs_stage <- filter(DEGs, Model == "int_stage")
+DEGs_hostcondition <- filter(DEGs, Model == "host_condition")
+DEGs_stagecondition <- filter(DEGs, Model == "stage_condition")
+DEGs_condition <- filter(DEGs, Model == "int_condition")
+```
+
+Create the gene universe file (allGenes in topGO):
+This is just an example because I think this is not the complete list
+```{r}
+allGenesdf <- filter(DEGs_condition, padj != "NA") %>% 
+  select(Gene, padj)
+
+allGenes <- as.numeric(allGenesdf$padj)
+names(allGenes) <- allGenesdf$Gene
+class(allGenes)
+head(allGenes)
+```
+
+Create the DEGs file (geneSel in topGO):
+```{r}
+topDiffGenes <- function(allScore) {
++    return(allScore < 0.001) }
+
+topgenes <- topDiffGenes(allGenes)
+sum(topgenes)
+class(topgenes)
+```
+
+Prepare the functional annotation:
+```{r}
+#Import annotation file
+cama_anno <- read.csv("/SAN/Lauras_territory/Novaseq/cama/denovo/cama_anno.csv", sep = "\t", header = TRUE)
+##We have to adjust the table with Gene ID (tab) GO1, GO2 ...
+gene2GO <- filter(cama_anno, GOs != "-") %>%  
+  select(query, GOs)
+
+names(gene2GO) <- NULL
+#Export the new table
+write.table(gene2GO, file="~/GitHub/Worms/Schistocephalus/data/gene2GOtable.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+#So I can load it as object
+geneID2GO <- read_file("~/GitHub/Worms/Schistocephalus/data/gene2GOtable.txt")
+head(str(geneID2GO))
+
+```
+
+
+###Now Load everything in topGO
+
+```{r}
+#First set the parameters
+sampleGOdata <- new("topGOdata",
+                    description = "Simple session", ontology = "MF",
+                    allGenes = allGenes, geneSelectionFun = topDiffGenes,
+                    nodeSize = 10,
+                    annot = annFUN.gene2GO, gene2go = geneID2GO)
+
+```
+
+
+
+
+
+
+####This is setting the parameters with Category
+I don't use this cause there is far less documentation around, it wouldn't be much different
+
+Starting with one model at the time, I'll select 2 thresholds, first the padj to select only the significant ones (for each dataset), and then the lfc threshold to select only the ones that are 4 fold up or down regulated (general threshold)
+```{r}
+host_res_0.01 = as.data.frame(subset(DEGs_host, padj<0.01))
+lfc = 4
+```
+
+Now 
+```{r}
+host_selectGenesup = unique(host_res_0.01[host_res_0.01$log2FoldChange>lfc, 'Gene'])
+host_selectGenesdown = unique(host_res_0.01[host_res_0.01$log2FoldChange<(-lfc), 'Gene'])
+```
+
+```{r}
+universeGenes = as.vector(unique(host_res_0.01$Gene))
+
+```
+```{r}
+upParameters = new("GOHyperGParams",
+                    geneIds = host_selectGenesup,
+                    universeGeneIds = universeGenes,
+                    annotation = SSanno,
+                    pvalueCutoff= 0.001,
+                    testDirection = "over")
+```
+
+```{r}
+downParameters <- new("GOhyperGparams",
+                    geneIds = host_,
+                    universeGeneIds = ,
+                    annotation = "/SAN/Lauras_territory/schisto_genome/schisto_annotation.gtf",
+                    pvalueCutoff= 0.001,
+                    testDirection = "under")
+```
+
