@@ -32,51 +32,81 @@ For now we use the table that came from the first model testing.
 DEGs <- read.csv("~/GitHub/Worms/Schistocephalus/data/DEGs_by_devo_stage.csv", header=TRUE, sep=",")
 ```
 
-Split the datasets:
+Rename the genes and extract only the interesting columns:
 ```{r}
-ConditionA <- filter(DEGs, condition == "A")
-ConditionB <- filter(DEGs, condition == "B")
-ConditionC <- filter(DEGs, condition == "C")
-ConditionD <- filter(DEGs, condition == "D")
-ConditionE <- filter(DEGs, condition == "E")
-ConditionF <- filter(DEGs, condition == "F")
-ConditionG <- filter(DEGs, condition == "G")
-ConditionH <- filter(DEGs, condition == "H")
-ConditionI <- filter(DEGs, condition == "I")
-ConditionL <- filter(DEGs, condition == "L")
+##Use this is you want to create the lists directly:
+##conditions <- lapply(LETTERS[c(1:9, 12)], function(x){
+# filter(DEGs, condition ==x)
+#})
+
+allDEGs <- DEGs %>% 
+  dplyr::filter(!is.na(padj)) %>% 
+  select(condition, gene, padj) %>% 
+  ungroup()
+
+allDEGs$gene <- str_replace(allDEGs$gene, "gene:", "")
 ```
 
-Here prepare all the datasets for allGenes object!!!
+Now we have to prepare a named numeric vector for each condition we tested 
+```{r}
+#I separate the dataframes
+ConditionA <- filter(allDEGs, condition == "A")
+ConditionB <- filter(allDEGs, condition == "B")
+ConditionC <- filter(allDEGs, condition == "C")
+ConditionD <- filter(allDEGs, condition == "D")
+ConditionE <- filter(allDEGs, condition == "E")
+ConditionF <- filter(allDEGs, condition == "F")
+ConditionG <- filter(allDEGs, condition == "G")
+ConditionH <- filter(allDEGs, condition == "H")
+ConditionI <- filter(allDEGs, condition == "I")
+ConditionL <- filter(allDEGs, condition == "L")
+
+#And then I extract the numeric vectors for topGO
+allGenesA <- as.numeric(ConditionA$padj)
+names(allGenesA) <- ConditionA$gene
+
+head(allGenesA)
+
+allGenesB <- as.numeric(ConditionB$padj)
+names(allGenesB) <- ConditionB$gene
+
+allGenesC <- as.numeric(ConditionC$padj)
+names(allGenesC) <- ConditionC$gene
+
+allGenesD <- as.numeric(ConditionD$padj)
+names(allGenesD) <- ConditionD$gene
+
+allGenesE <- as.numeric(ConditionE$padj)
+names(allGenesE) <- ConditionE$gene
+
+allGenesF <- as.numeric(ConditionF$padj)
+names(allGenesF) <- ConditionF$gene
+
+allGenesG <- as.numeric(ConditionG$padj)
+names(allGenesG) <- ConditionG$gene
+
+allGenesH <- as.numeric(ConditionH$padj)
+names(allGenesH) <- ConditionH$gene
+
+allGenesI <- as.numeric(ConditionI$padj)
+names(allGenesI) <- ConditionI$gene
+
+allGenesL <- as.numeric(ConditionL$padj)
+names(allGenesL) <- ConditionL$gene
+```
+Here we could create a list of these vectors to put them in a loop(?)
 ```{r}
 
 ```
-
-Create the gene universe file (allGenes in topGO):
+Create the gene universe file (allGenes in topGO) in a loop?:
 ```{r}
-allGenesdf <- filter(ConditionA, padj != "NA") %>% 
-  select(gene, padj)
 
-#rename the genes
-allGenesdf$gene <- gsub(pattern = "gene:", replacement = "", as.name(allGenesdf$gene))
-
-
-allGenes <- as.numeric(allGenesdf$padj)
-names(allGenes) <- allGenesdf$gene
-class(allGenes)
-head(allGenes)
-is.vector(allGenes)
 ```
-
 define the DEGs function (geneSel in topGO):
 ```{r}
 topDiffGenes <- function(allScore) {
 +    return(allScore < 0.001) }
-
-topgenes <- topDiffGenes(allGenes)
-sum(topgenes)
-class(topgenes)
 ```
-
 Prepare the functional annotation:
 ```{r}
 #Import annotation file
@@ -100,60 +130,436 @@ write.table(gene2GO, file="~/GitHub/Worms/Schistocephalus/data/gene2GO.txt", sep
 
 #So I can load it as object
 geneID2GO <- readMappings("~/GitHub/Worms/Schistocephalus/data/gene2GO.txt")
-
+str(head(geneID2GO))
 ```
 
+###Load everything in the topGO object
 
-###Now Load everything in topGO
-
+First set the parameters for condition A:
 ```{r}
-#First set the parameters
-sampleGOdata <- new("topGOdata",
-                      ontology = "MF", description = "Simple session",
-                      allGenes = allGenes, geneSel = topDiffGenes,
-                      nodeSize = 10,
-                      annot = annFUN.gene2GO, gene2GO = geneID2GO)
+#For Molecular functions
+GOdataA_MF <- new("topGOdata",
+                    allGenes = allGenesA, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataA_BP <- new("topGOdata",
+                    allGenes = allGenesA, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataA_CC <- new("topGOdata",
+                    allGenes = allGenesA, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+###Run the GO enrichment test
+```{r}
+resultsA_MF <- runTest(GOdataA_MF, algorithm = "elim", statistic = "ks")
+allResA_MF <- GenTable(GOdataA_MF, elimKS=resultsA_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResA_MF
+resultsA_BP <- runTest(GOdataA_BP, algorithm = "elim", statistic = "ks")
+allResA_BP <- GenTable(GOdataA_BP, elimKS=resultsA_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResA_BP
+resultsA_CC <- runTest(GOdataA_CC, algorithm = "elim", statistic = "ks")
+allResA_CC <- GenTable(GOdataA_CC, elimKS=resultsA_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResA_CC
+```
+Set the parameters for condition B:
+```{r}
+#For Molecular functions
+GOdataB_MF <- new("topGOdata",
+                    allGenes = allGenesB, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataB_BP <- new("topGOdata",
+                    allGenes = allGenesB, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataB_CC <- new("topGOdata",
+                    allGenes = allGenesB, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+Test condition B
+```{r}
+resultsB_MF <- runTest(GOdataB_MF, algorithm = "elim", statistic = "ks")
+allResB_MF <- GenTable(GOdataB_MF, elimKS=resultsB_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResB_MF
+resultsB_BP <- runTest(GOdataB_BP, algorithm = "elim", statistic = "ks")
+allResB_BP <- GenTable(GOdataB_BP, elimKS=resultsB_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResB_BP
+resultsB_CC <- runTest(GOdataB_CC, algorithm = "elim", statistic = "ks")
+allResB_CC <- GenTable(GOdataB_CC, elimKS=resultsB_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResB_CC
+```
+Set the parameters for condition C:
+```{r}
+#For Molecular functions
+GOdataC_MF <- new("topGOdata",
+                    allGenes = allGenesC, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataC_BP <- new("topGOdata",
+                    allGenes = allGenesC, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataC_CC <- new("topGOdata",
+                    allGenes = allGenesC, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+Test condition C
+```{r}
+resultsC_MF <- runTest(GOdataC_MF, algorithm = "elim", statistic = "ks")
+allResC_MF <- GenTable(GOdataC_MF, elimKS=resultsC_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResC_MF
+resultsC_BP <- runTest(GOdataC_BP, algorithm = "elim", statistic = "ks")
+allResC_BP <- GenTable(GOdataC_BP, elimKS=resultsC_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResC_BP
+resultsC_CC <- runTest(GOdataC_CC, algorithm = "elim", statistic = "ks")
+allResC_CC <- GenTable(GOdataC_CC, elimKS=resultsC_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResC_CC
+```
+Set the parameters for condition D:
+```{r}
+#For Molecular functions
+GOdataD_MF <- new("topGOdata",
+                    allGenes = allGenesD, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataD_BP <- new("topGOdata",
+                    allGenes = allGenesD, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataD_CC <- new("topGOdata",
+                    allGenes = allGenesD, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+Test condition D
+```{r}
+resultsD_MF <- runTest(GOdataD_MF, algorithm = "elim", statistic = "ks")
+allResD_MF <- GenTable(GOdataD_MF, elimKS=resultsD_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResD_MF
+resultsD_BP <- runTest(GOdataD_BP, algorithm = "elim", statistic = "ks")
+allResD_BP <- GenTable(GOdataD_BP, elimKS=resultsD_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResD_BP
+resultsD_CC <- runTest(GOdataD_CC, algorithm = "elim", statistic = "ks")
+allResD_CC <- GenTable(GOdataD_CC, elimKS=resultsD_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResD_CC
+```
+Set the parameters for condition E:
+```{r}
+#For Molecular functions
+GOdataE_MF <- new("topGOdata",
+                    allGenes = allGenesE, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataE_BP <- new("topGOdata",
+                    allGenes = allGenesE, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataE_CC <- new("topGOdata",
+                    allGenes = allGenesE, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+Test condition E
+```{r}
+resultsE_MF <- runTest(GOdataE_MF, algorithm = "elim", statistic = "ks")
+allResE_MF <- GenTable(GOdataE_MF, elimKS=resultsE_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResE_MF
+resultsE_BP <- runTest(GOdataE_BP, algorithm = "elim", statistic = "ks")
+allResE_BP <- GenTable(GOdataE_BP, elimKS=resultsE_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResE_BP
+resultsE_CC <- runTest(GOdataE_CC, algorithm = "elim", statistic = "ks")
+allResE_CC <- GenTable(GOdataE_CC, elimKS=resultsE_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResE_CC
+```
+Set the parameters for condition F:
+```{r}
+#For Molecular functions
+GOdataF_MF <- new("topGOdata",
+                    allGenes = allGenesF, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataF_BP <- new("topGOdata",
+                    allGenes = allGenesF, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataF_CC <- new("topGOdata",
+                    allGenes = allGenesF, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+Test condition F
+```{r}
+resultsF_MF <- runTest(GOdataF_MF, algorithm = "elim", statistic = "ks")
+allResF_MF <- GenTable(GOdataF_MF, elimKS=resultsF_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResF_MF
+resultsF_BP <- runTest(GOdataF_BP, algorithm = "elim", statistic = "ks")
+allResF_BP <- GenTable(GOdataF_BP, elimKS=resultsF_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResF_BP
+resultsF_CC <- runTest(GOdataF_CC, algorithm = "elim", statistic = "ks")
+allResF_CC <- GenTable(GOdataF_CC, elimKS=resultsF_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResF_CC
 ```
 
-
-
-
-
-
-####This is setting the parameters with Category
-I don't use this cause there is far less documentation around, it wouldn't be much different
-
-Starting with one model at the time, I'll select 2 thresholds, first the padj to select only the significant ones (for each dataset), and then the lfc threshold to select only the ones that are 4 fold up or down regulated (general threshold)
+Set the parameters for condition G:
 ```{r}
-host_res_0.01 = as.data.frame(subset(DEGs_host, padj<0.01))
-lfc = 4
+#For Molecular functions
+GOdataG_MF <- new("topGOdata",
+                    allGenes = allGenesG, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataG_BP <- new("topGOdata",
+                    allGenes = allGenesG, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataG_CC <- new("topGOdata",
+                    allGenes = allGenesG, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
 ```
 
-Now 
+Test condition G
 ```{r}
-host_selectGenesup = unique(host_res_0.01[host_res_0.01$log2FoldChange>lfc, 'Gene'])
-host_selectGenesdown = unique(host_res_0.01[host_res_0.01$log2FoldChange<(-lfc), 'Gene'])
+resultsG_MF <- runTest(GOdataG_MF, algorithm = "elim", statistic = "ks")
+allResG_MF <- GenTable(GOdataG_MF, elimKS=resultsG_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResG_MF
+resultsG_BP <- runTest(GOdataG_BP, algorithm = "elim", statistic = "ks")
+allResG_BP <- GenTable(GOdataG_BP, elimKS=resultsG_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResG_BP
+resultsG_CC <- runTest(GOdataG_CC, algorithm = "elim", statistic = "ks")
+allResG_CC <- GenTable(GOdataG_CC, elimKS=resultsG_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResG_CC
+```
+Set the parameters for condition H:
+```{r}
+#For Molecular functions
+GOdataH_MF <- new("topGOdata",
+                    allGenes = allGenesH, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataH_BP <- new("topGOdata",
+                    allGenes = allGenesH, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataH_CC <- new("topGOdata",
+                    allGenes = allGenesH, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
 ```
 
+Test condition H
 ```{r}
-universeGenes = as.vector(unique(host_res_0.01$Gene))
-
+resultsH_MF <- runTest(GOdataH_MF, algorithm = "elim", statistic = "ks")
+allResH_MF <- GenTable(GOdataH_MF, elimKS=resultsH_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResH_MF
+resultsH_BP <- runTest(GOdataH_BP, algorithm = "elim", statistic = "ks")
+allResH_BP <- GenTable(GOdataH_BP, elimKS=resultsH_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResH_BP
+resultsH_CC <- runTest(GOdataH_CC, algorithm = "elim", statistic = "ks")
+allResH_CC <- GenTable(GOdataH_CC, elimKS=resultsH_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResH_CC
 ```
+
+Set the parameters for condition I:
 ```{r}
-upParameters = new("GOHyperGParams",
-                    geneIds = host_selectGenesup,
-                    universeGeneIds = universeGenes,
-                    annotation = SSanno,
-                    pvalueCutoff= 0.001,
-                    testDirection = "over")
+#For Molecular functions
+GOdataI_MF <- new("topGOdata",
+                    allGenes = allGenesI, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataI_BP <- new("topGOdata",
+                    allGenes = allGenesI, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataI_CC <- new("topGOdata",
+                    allGenes = allGenesI, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
 ```
 
+Test condition I
 ```{r}
-downParameters <- new("GOhyperGparams",
-                    geneIds = host_,
-                    universeGeneIds = ,
-                    annotation = "/SAN/Lauras_territory/schisto_genome/schisto_annotation.gtf",
-                    pvalueCutoff= 0.001,
-                    testDirection = "under")
+resultsI_MF <- runTest(GOdataI_MF, algorithm = "elim", statistic = "ks")
+allResI_MF <- GenTable(GOdataI_MF, elimKS=resultsI_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResI_MF
+resultsI_BP <- runTest(GOdataI_BP, algorithm = "elim", statistic = "ks") 
+allResI_BP <- GenTable(GOdataI_BP, elimKS=resultsI_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResI_BP
+resultsI_CC <- runTest(GOdataI_CC, algorithm = "elim", statistic = "ks")
+allResI_CC <- GenTable(GOdataI_CC, elimKS=resultsI_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResI_CC
+```
+
+Set the parameters for condition L:
+```{r}
+#For Molecular functions
+GOdataL_MF <- new("topGOdata",
+                    allGenes = allGenesL, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "MF", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For biological process
+GOdataL_BP <- new("topGOdata",
+                    allGenes = allGenesL, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "BP", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+#For cellular departments
+GOdataL_CC <- new("topGOdata",
+                    allGenes = allGenesL, geneSel = topDiffGenes,
+                    nodeSize =10,
+                    annot = annFUN.gene2GO, 
+                    ontology = "CC", 
+                    description = "Simple session",
+                    gene2GO = geneID2GO)
+```
+
+Test condition I
+```{r}
+resultsL_MF <- runTest(GOdataL_MF, algorithm = "elim", statistic = "ks")
+allResL_MF <- GenTable(GOdataL_MF, elimKS=resultsL_MF,
+                   orderBy ="elimKS", topNodes = 10)
+allResL_MF
+resultsL_BP <- runTest(GOdataL_BP, algorithm = "elim", statistic = "ks")
+allResL_BP <- GenTable(GOdataL_BP, elimKS=resultsL_BP,
+                   orderBy ="elimKS", topNodes = 10)
+allResL_BP
+resultsL_CC <- runTest(GOdataL_CC, algorithm = "elim", statistic = "ks")
+allResL_CC <- GenTable(GOdataL_CC, elimKS=resultsL_CC,
+                   orderBy ="elimKS", topNodes = 10)
+allResL_CC
 ```
 
