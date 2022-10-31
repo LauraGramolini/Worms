@@ -18,7 +18,7 @@ theme_update(panel.grid.minor = element_blank())
 
 First, we load the gene count table for *Schistocephalus solidus*.
 
-```{r}
+```{r load_data}
 gc <- read.table(file = "../data/SScountdf.csv", header = T, sep = " ") # gene count
 md <- read.delim(file = "../data/schistoData.txt", header = T) # metadata
 md <- select(md, -X)
@@ -37,7 +37,7 @@ gc$gene <- row.names(gc)
 
 # Filtering genes with low expression
 
-The data are in wide format with each column representing a sample and each row a gene. We will make the data long, so that each combination of gene and sample has its own row (i.e. all expression counts are in a single column).
+[Elsewhere](SS_DEmodels.Rmd) we explored which genes to remove from the analysis due to low levels of expression. As an arbitrary threshold, we removed genes that do not have a median expression level of at least 10 counts in at least one condition.
 
 ```{r}
 gc_long <- gc%>%
@@ -45,61 +45,17 @@ gc_long <- gc%>%
 
 gc_long <- gc_long%>%
   mutate(grp = gsub(pattern = "[:0-9:]", "", x = gc_long$sample))
-```
 
-Here is the distribution of counts for every gene in every sample. In most samples in most genes, no expression is detectable. 
-
-```{r}
-ggplot(gc_long, aes(x = counts+.1)) +
-  geom_histogram(bins = 60) +
-  scale_x_log10()
-```
-
-When we exclude the zeros (no expression), we see a bimodal distribution. In many genes in many samples, counts are low (peak at one) and probably just represent noise. The peak at higher values probably represents "real" expression, say greater than 10 counts per gene.
-
-```{r}
-ggplot(gc_long%>%filter(counts>0), aes(x = counts)) +
-  geom_histogram(bins = 60) +
-  scale_x_log10(breaks = c(1, 10, 100, 1000, 10000))
-```
-The pattern is similar within each of our treatment groups. There is a fair amount of low-level expression that is probably just noise, and then from 10 counts or so there seems to be genuine expression. The separate lines are for the different samples. They show that the distribution of expression counts is similar across replicates.
-
-```{r}
-ggplot(gc_long, aes(x = counts)) +
-  geom_density(aes(group = sample), 
-               color = "gray", fill = "pink", alpha = 0.1) +
-  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
-  facet_wrap(~grp)
-```
-
-We can take the median expression level for each gene in each condition and make the same plot. Clearly some of the low-level expression can be removed.
-
-```{r}
 gc_avg_by_condition <- gc_long%>%
   group_by(grp, gene)%>%
   summarise(median = median(counts),
             min = min(counts))
-```
-```{r}
-ggplot(gc_avg_by_condition, aes(x = median)) +
-  geom_density(color = "gray", fill = "pink", alpha = 0.1) +
-  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
-  facet_wrap(~grp)
-```
-```{r}
+
 # for each gene take the maximum median expression level for any given condition
 gc_max_exp_in_at_least_cond <- gc_avg_by_condition%>%
   group_by(gene)%>%
   summarise(max_med_count = max(median))
 
-# ggplot(gc_max_exp_in_at_least_cond, aes(x = max_med_count)) +
-#   geom_density(color = "gray", fill = "pink", alpha = 0.1) +
-#   scale_x_log10(breaks = c(1, 10, 100, 1000))
-```
-
-As an arbitrary threshold, we will remove genes that do not have a median expression level of at least 10 counts in at least one condition.
-
-```{r}
 low_genes <- gc_max_exp_in_at_least_cond%>%
   filter(max_med_count < 10)%>%.$gene
 ```
@@ -607,7 +563,7 @@ table(clusters$cluster)
 One possible way to improve clustering would be to use only differentially expressed genes. Let's import the genes that differed in expression, as judged by `DESeq2` models.
 
 ```{r}
-gc_degs <- read.table(file = "../data/DEGsmodels.csv", header = T, sep = " ") # diff. expressed genes from all models 
+gc_degs <- read.table(file = "../data/DEGsmodels.csv", header = T, sep = " ") # diff. expressed genes from all models
 ```
 ```{r}
 # results from int-only model vs host model
@@ -636,19 +592,10 @@ We start by just isolating genes that were differentially expressed among hosts.
 length(gc_degs_host$Gene)
 ```
 
-Out of these, this number had low expression levels under our criteria above.
+Out of these, this number had low expression levels under our criteria above (because they were removed before fitting the models).
 
 ```{r}
 sum(gc_degs_host$Gene %in% low_genes)
-```
-
-These low-expression genes are less likely to be differentially expressed (higher p-values): 
-
-```{r}
-ggplot(gc_degs_host, aes(x = padj+0.00000001)) +
-  geom_density(aes(color = Gene %in% low_genes)) +
-  labs(color = "Low expression") +
-  scale_x_log10()
 ```
 
 So, with a conservative p-value threshold, many of these genes will be removed. Here are the number of DEGs at different levels of significance. A 10-fold change in the p-value usually removes roughly 1000 genes from the list.
@@ -1556,38 +1503,40 @@ grid.draw(finalGrob_v2)
 
 # *Clust* algorithm
 
-Alternatively, different clustering algorithms could be used. For example, instead of assigning all genes to clusters, this [algorithm](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1536-8) tries to extract clusters of genes with similar expression. I ran the algorithm (see commands [here](run_clust.txt)) on the full set of genes and the differentially expressed genes.
+Alternatively, different clustering algorithms could be used. For example, instead of assigning all genes to clusters, this [algorithm](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-018-1536-8) tries to extract clusters of genes with similar expression. I ran the algorithm (see commands [here](run_clust.txt)) on the full set of genes and the differentially expressed genes. 
+
+These *clust* tests were not included in the Repo, so the code is commented out.
 
 ```{r}
-# write files for clust - all genes
-gc_for_clust <- gc%>%
-  mutate(gene_id = gsub(pattern = "gene:", "", gene))%>%
-  select(gene_id, ConditionA01:ConditionL10)
-write_tsv(gc_for_clust, file = "clust_input/Schisto_gene_matrix.tsv")
-
-replicates_file_for_clust <- gc_long%>%
-  group_by(grp)%>%
-  summarise(sample_names = paste0(unique(sample), collapse = ", "))
-
-replicates_file_for_clust <- replicates_file_for_clust%>%
-  ungroup()%>%
-  mutate(data_name = "Schisto_gene_matrix.tsv")%>%
-  select(data_name, grp, sample_names)
-write_tsv(replicates_file_for_clust, file = "clust_input/replicates_file.tsv",
-          col_names = FALSE)
+# # write files for clust - all genes
+# gc_for_clust <- gc%>%
+#   mutate(gene_id = gsub(pattern = "gene:", "", gene))%>%
+#   select(gene_id, ConditionA01:ConditionL10)
+# write_tsv(gc_for_clust, file = "clust_input/Schisto_gene_matrix.tsv")
+# 
+# replicates_file_for_clust <- gc_long%>%
+#   group_by(grp)%>%
+#   summarise(sample_names = paste0(unique(sample), collapse = ", "))
+# 
+# replicates_file_for_clust <- replicates_file_for_clust%>%
+#   ungroup()%>%
+#   mutate(data_name = "Schisto_gene_matrix.tsv")%>%
+#   select(data_name, grp, sample_names)
+# write_tsv(replicates_file_for_clust, file = "clust_input/replicates_file.tsv",
+#           col_names = FALSE)
 ```
 ```{r}
-# write files for clust - just DEGs
-gc_for_clust <- gc%>%
-  filter(gene %in% degs)%>%
-  mutate(gene_id = gsub(pattern = "gene:", "", gene))%>%
-  select(gene_id, ConditionA01:ConditionL10)
-write_tsv(gc_for_clust, file = "clust_input/Schisto_gene_matrix_onlyDEGs.tsv")
-
-replicates_file_for_clust2 <- replicates_file_for_clust%>%
-  mutate(data_name = "Schisto_gene_matrix_onlyDEGs.tsv")
-write_tsv(replicates_file_for_clust2, file = "clust_input/replicates_file2.tsv",
-          col_names = FALSE)
+# # write files for clust - just DEGs
+# gc_for_clust <- gc%>%
+#   filter(gene %in% degs)%>%
+#   mutate(gene_id = gsub(pattern = "gene:", "", gene))%>%
+#   select(gene_id, ConditionA01:ConditionL10)
+# write_tsv(gc_for_clust, file = "clust_input/Schisto_gene_matrix_onlyDEGs.tsv")
+# 
+# replicates_file_for_clust2 <- replicates_file_for_clust%>%
+#   mutate(data_name = "Schisto_gene_matrix_onlyDEGs.tsv")
+# write_tsv(replicates_file_for_clust2, file = "clust_input/replicates_file2.tsv",
+#           col_names = FALSE)
 ```
 
 ## All genes
@@ -1595,50 +1544,50 @@ write_tsv(replicates_file_for_clust2, file = "clust_input/replicates_file2.tsv",
 *clust* only extracted two clusters from the full dataset.
 
 ```{r}
-# read in cluster data
-clust_out_allgenes <- read_tsv(file = "clust_output/all_expressed/Clusters_Objects.tsv")
+# # read in cluster data
+# clust_out_allgenes <- read_tsv(file = "clust_output/all_expressed/Clusters_Objects.tsv")
 ```
 ```{r}
-clust_out_allgenes <- clust_out_allgenes%>%
-  pivot_longer(., cols = everything(), names_to = "cluster", values_to = "gene")%>%
-  filter(gene != "Genes")
-# n_distinct(clust_out_allgenes$cluster)
+# clust_out_allgenes <- clust_out_allgenes%>%
+#   pivot_longer(., cols = everything(), names_to = "cluster", values_to = "gene")%>%
+#   filter(gene != "Genes")
+# # n_distinct(clust_out_allgenes$cluster)
 ```
 ```{r}
-gc_expressed_trans_long2 <- gc_expressed_trans_long%>%
-  ungroup()%>%
-  mutate(gene = gsub(pattern = "gene:", "", gene))
-
-# add cluster to main data
-gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
-  left_join(., clust_out_allgenes)
+# gc_expressed_trans_long2 <- gc_expressed_trans_long%>%
+#   ungroup()%>%
+#   mutate(gene = gsub(pattern = "gene:", "", gene))
+# 
+# # add cluster to main data
+# gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
+#   left_join(., clust_out_allgenes)
 ```
 When we plot them, we see that one cluster groups genes that are down regulated in the early life stages, whereas the other cluster is quite variable.
 
 ```{r}
-ggplot(gc_expressed_trans_clusters2%>%
-         filter(!is.na(cluster)), 
-       aes(x = grp, y = z_score)) +
-  # background for copepod stage
-  annotate("rect",
-           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
-           fill = "gray") +
-  # background for bird stages
-  annotate("rect",
-           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
-           fill = "gray") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_line(aes(group = gene), alpha = 0.05) +
-  geom_line(stat = "summary",
-            fun = "median", colour = "red", size = 1, 
-            aes(group = 1)) +
-  scale_x_discrete(labels = x_ax_lab, 
-                   guide = guide_axis(angle = 90)) +
-  scale_color_distiller(type = "div", palette = "RdBu") +
-  facet_wrap(~ as.factor(cluster)) +
-  theme(panel.grid.major = element_blank(),
-        axis.title.x = element_blank()
-        )
+# ggplot(gc_expressed_trans_clusters2%>%
+#          filter(!is.na(cluster)), 
+#        aes(x = grp, y = z_score)) +
+#   # background for copepod stage
+#   annotate("rect",
+#            xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+#            fill = "gray") +
+#   # background for bird stages
+#   annotate("rect",
+#            xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+#            fill = "gray") +
+#   geom_hline(yintercept = 0, linetype = "dashed") +
+#   geom_line(aes(group = gene), alpha = 0.05) +
+#   geom_line(stat = "summary",
+#             fun = "median", colour = "red", size = 1, 
+#             aes(group = 1)) +
+#   scale_x_discrete(labels = x_ax_lab, 
+#                    guide = guide_axis(angle = 90)) +
+#   scale_color_distiller(type = "div", palette = "RdBu") +
+#   facet_wrap(~ as.factor(cluster)) +
+#   theme(panel.grid.major = element_blank(),
+#         axis.title.x = element_blank()
+#         )
 ```
 
 ## Differentially expressed genes
@@ -1646,50 +1595,55 @@ ggplot(gc_expressed_trans_clusters2%>%
 *clust* only extracted one cluster from the set of DEGs.
 
 ```{r}
-# read in cluster data
-clust_out_degs <- read_tsv(file = "clust_output/only_DEGs/Clusters_Objects.tsv")
+# # read in cluster data
+# clust_out_degs <- read_tsv(file = "clust_output/only_DEGs/Clusters_Objects.tsv")
 ```
 
 ```{r}
-clust_out_degs <- clust_out_degs%>%
-  pivot_longer(., cols = everything(), names_to = "cluster", values_to = "gene")%>%
-  filter(gene != "Genes")
-n_distinct(clust_out_degs$cluster)
+# clust_out_degs <- clust_out_degs%>%
+#   pivot_longer(., cols = everything(), names_to = "cluster", values_to = "gene")%>%
+#   filter(gene != "Genes")
+# n_distinct(clust_out_degs$cluster)
 ```
 ```{r}
-# add cluster to main data
-gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
-  left_join(., clust_out_degs)
+# # add cluster to main data
+# gc_expressed_trans_clusters2 <- gc_expressed_trans_long2%>%
+#   left_join(., clust_out_degs)
 ```
 
 The plot of this single cluster is not very convincing. 
 
 ```{r}
-ggplot(gc_expressed_trans_clusters2%>%
-         filter(!is.na(cluster)), 
-       aes(x = grp, y = z_score)) +
-  # background for copepod stage
-  annotate("rect",
-           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
-           fill = "gray") +
-  # background for bird stages
-  annotate("rect",
-           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
-           fill = "gray") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  geom_line(aes(group = gene), alpha = 0.05) +
-  geom_line(stat = "summary",
-            fun = "median", colour = "red", size = 1, 
-            aes(group = 1)) +
-  scale_x_discrete(labels = x_ax_lab, 
-                   guide = guide_axis(angle = 90)) +
-  scale_color_distiller(type = "div", palette = "RdBu") +
-  facet_wrap(~ as.factor(cluster)) +
-  theme(panel.grid.major = element_blank(),
-        axis.title.x = element_blank()
-        )
+# ggplot(gc_expressed_trans_clusters2%>%
+#          filter(!is.na(cluster)), 
+#        aes(x = grp, y = z_score)) +
+#   # background for copepod stage
+#   annotate("rect",
+#            xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+#            fill = "gray") +
+#   # background for bird stages
+#   annotate("rect",
+#            xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+#            fill = "gray") +
+#   geom_hline(yintercept = 0, linetype = "dashed") +
+#   geom_line(aes(group = gene), alpha = 0.05) +
+#   geom_line(stat = "summary",
+#             fun = "median", colour = "red", size = 1, 
+#             aes(group = 1)) +
+#   scale_x_discrete(labels = x_ax_lab, 
+#                    guide = guide_axis(angle = 90)) +
+#   scale_color_distiller(type = "div", palette = "RdBu") +
+#   facet_wrap(~ as.factor(cluster)) +
+#   theme(panel.grid.major = element_blank(),
+#         axis.title.x = element_blank()
+#         )
 ```
 
 # Summary
 
 In conclusion, some of the largest changes in gene expression occur at the beginning and end of the life cycle. Most changes in gene expression cannot be neatly attributed to changing the host or changing the function. Rather, gene expression can vary within hosts and among functionally similar stages in different hosts.
+
+```{r}
+sessionInfo()
+```
+

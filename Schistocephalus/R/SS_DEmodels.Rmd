@@ -1,22 +1,148 @@
 ---
-title: "SS_DEmodels"
-author: "Laura Gramolini"
-date: '2022-09-21'
-output: html_document
+title: "Differential gene expression across the *Schistocephalus* life cycle"
+output: 
+  github_document:
+    toc: true
+    df_print: kable
 ---
 
-Here we test the models
-First we load the data putting the Host as design. I would load the data everytime and change the design, probably not the best but the easiest way.
+The goal of this script is to test the different models to understand the pattern of gene expression across the Schistocephalus life cycle.
 
-```{r}
+```{r setup, include=FALSE}
 library(DESeq2)
 library(tidyverse)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, echo = FALSE)
+options(stringsAsFactors = FALSE)
+theme_set(theme_bw())
+theme_update(panel.grid.minor = element_blank())
+```
+
+```{r}
+# read data
 SScountdf <- read.csv("../data/SScountdf.csv", header = TRUE, sep="")
 SScolData <- read.csv("../data/schistoData.txt", header = TRUE, sep = "")
 ```
+There are ~20,000 genes from 72 samples.
 
+```{r}
+gc <- SScountdf
+dim(gc)
+```
+
+```{r}
+# add gene name to data
+gc$gene <- row.names(gc)
+```
+
+# Filtering genes with low expression
+
+The data are in wide format with each column representing a sample and each row a gene. We will make the data long, so that each combination of gene and sample has its own row (i.e. all expression counts are in a single column).
+
+```{r}
+gc_long <- gc%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "counts")
+
+gc_long <- gc_long%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = gc_long$sample))
+```
+
+Here is the distribution of counts for every gene in every sample. In most samples in most genes, no expression is detectable. 
+
+```{r}
+ggplot(gc_long, aes(x = counts+.1)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10()
+```
+
+When we exclude the zeros (no expression), we see a bimodal distribution. In many genes in many samples, counts are low (peak at one) and probably just represent noise. The peak at higher values probably represents "real" expression, say greater than 10 counts per gene.
+
+```{r}
+ggplot(gc_long%>%filter(counts>0), aes(x = counts)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000, 10000))
+```
+The pattern is similar within each of our treatment groups. There is a fair amount of low-level expression that is probably just noise, and then from 10 counts or so there seems to be genuine expression. The separate lines are for the different samples. They show that the distribution of expression counts is similar across replicates.
+
+```{r}
+ggplot(gc_long, aes(x = counts)) +
+  geom_density(aes(group = sample), 
+               color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+We can take the median expression level for each gene in each condition and make the same plot. Clearly some of the low-level expression can be removed.
+
+```{r}
+gc_avg_by_condition <- gc_long%>%
+  group_by(grp, gene)%>%
+  summarise(median = median(counts),
+            min = min(counts))
+```
+```{r}
+ggplot(gc_avg_by_condition, aes(x = median)) +
+  geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+```{r}
+# for each gene take the maximum median expression level for any given condition
+gc_max_exp_in_at_least_cond <- gc_avg_by_condition%>%
+  group_by(gene)%>%
+  summarise(max_med_count = max(median))
+
+# ggplot(gc_max_exp_in_at_least_cond, aes(x = max_med_count)) +
+#   geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+#   scale_x_log10(breaks = c(1, 10, 100, 1000))
+```
+
+As an arbitrary threshold, we will remove genes that do not have a median expression level of at least 10 counts in at least one condition.
+
+```{r}
+low_genes <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+```
+
+Here is the percent of genes removed.
+
+```{r}
+round(length(low_genes)/length(gc$gene), 3)
+```
+
+Doubling the threshold for expression counts (20) only removes a few percent more.
+
+```{r}
+low_genes20 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 20)%>%.$gene
+round(length(low_genes20)/length(gc$gene), 3)
+```
+
+Similarly halving the threshold (5) would only add a few percent of the genes back into the analysis.
+
+```{r}
+low_genes5 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 5)%>%.$gene
+round(length(low_genes5)/length(gc$gene), 3)
+```
+
+Specifically, it would add this many genes back into the analysis:
+
+```{r}
+length(low_genes)-length(low_genes5)
+rm(low_genes20, low_genes5)
+```
+
+```{r}
+rm(gc, gc_avg_by_condition, gc_long, gc_max_exp_in_at_least_cond)
+SScountdf <- SScountdf[!row.names(SScountdf) %in% low_genes,] # just expressed genes
+```
+
+# Models for differential gene expression
+
+Now, we fit models with `DESeq2`. A glm is fitted for each gene, and we fit models with different predictors. First, we fit a model with just the *host* (i.e. free vs copepod vs fish vs bird). Second, we fit a model with just the *functional stage* (i.e. infecting vs growing vs transmission). Finally, we fit a model that combines host and function, in which a separate mean was estimated for each *developmental stage* sampled.
 
 M1 would be the dataset loaded in DEseq with the Host as design
+
 ```{r}
 M1 <- DESeqDataSetFromMatrix(
   countData = SScountdf,
@@ -125,22 +251,22 @@ host_condition <- as.data.frame(resultsM4)
 stage_condition <- as.data.frame(resultsM5)
 int_condition <- as.data.frame(resultsM3)
 
+int_host$Gene <- row.names(int_host)
+int_stage$Gene <- row.names(int_stage)
+host_condition$Gene <- row.names(host_condition)
+stage_condition$Gene <- row.names(stage_condition)
+int_condition$Gene <- row.names(int_condition)
 
 DEGsmodels <- dplyr::lst(int_host, int_stage, host_condition, stage_condition, int_condition) %>% 
   set_names(c("int_host", "int_stage", "host_condition", "stage_condition", "int_condition")) %>% 
   bind_rows(.id = "Model") %>% 
-  select(Model, padj)
-
-# write.table(DEGsmodels, file="~/GitHub/Worms/Schistocephalus/data/DEGsmodels.csv")
+  select(Gene, Model, padj)
+row.names(DEGsmodels) <- NULL
+write.table(DEGsmodels, file="../data/DEGsmodels.csv")
 ```
 
+By plotting the distribution of adjusted p-values, we can get a feel for which models were the best. P-values were lowest in the condition model (with all devo stages) and highest in the functional stage model.
 
-```{r}
-filteredDEGs <- filter(DEGsmodels, padj < 0.00000000000001)
-```
-
-
-Plot the adjpvalues
 ```{r}
 ggplot(DEGsmodels, aes(x=padj+0.0000000001, color = Model)) + 
          geom_density() +
@@ -148,10 +274,10 @@ ggplot(DEGsmodels, aes(x=padj+0.0000000001, color = Model)) +
 ```
 
 ```{r}
-filter(DEGsmodels) %>%
-ggplot(aes(x=padj+0.00000001, color = Model, fill = Model)) + 
-         geom_histogram()+
-  scale_x_log10()
+# filter(DEGsmodels) %>%
+# ggplot(aes(x=padj+0.00000001, color = Model, fill = Model)) + 
+#          geom_histogram()+
+#   scale_x_log10()
 ```
 
 
@@ -165,15 +291,15 @@ plotMA(resultsM3, ylim=c(-2,2))
 ```
 
 ```{r}
-as.data.frame(resultsM3) %>% 
-ggplot(aes(x=log2FoldChange, y=-log10(pvalue))) + 
-         geom_point()
+# as.data.frame(resultsM3) %>% 
+# ggplot(aes(x=log2FoldChange, y=-log10(pvalue))) + 
+#          geom_point()
 ```
 
 ```{r}
-as.data.frame(resultsM1) %>% 
-ggplot() +
-  geom_smooth(aes(x=pvalue, y=log2FoldChange))
+# as.data.frame(resultsM1) %>% 
+# ggplot() +
+#   geom_smooth(aes(x=pvalue, y=log2FoldChange))
 ```
 
 
@@ -195,7 +321,7 @@ legend("topright", fill=rev(colori), legend=rev(names(colori)))
 
 
 
-
+# Extracting differentially expressed genes at each life stage
 
 The "condition" model is the best, suggesting that genes do not vary in purely host- or function-specific ways. Since a given developmental stage may have a unique pattern of gene expression, let's use DESeq2 to extract the genes that are significantly up- or down-regulated in each stage, relative to the rest of the life cycle. These contrasts were constructed as suggested [here](https://github.com/tavareshugo/tutorial_DESeq2_contrasts/blob/main/DESeq2_contrasts.md).
 
@@ -233,6 +359,7 @@ all_butH <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionH", ])
 all_butI <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionI", ])
 all_butL <- colMeans(mod_mat[ConditionM3_noLRT$Condition != "ConditionL", ])
 ```
+
 
 ```{r}
 # two ways to get same results
@@ -325,7 +452,7 @@ reverselog_trans <- function(base = exp(1)) {
               domain = c(1e-100, Inf))
 }
 ```
-```{r}
+```{r volcano}
 # volcano plot
 ggplot(DE_each_group%>%
          filter(!is.na(padj))%>%
@@ -339,11 +466,97 @@ ggplot(DE_each_group%>%
   theme(panel.grid.minor = element_blank())
 ```
 
+# Unadjusted and adjusted contrasts
+
+In the plot above, the fold changes represent the change between the focal group and the remaining groups. However, the sampling was not perfectly balanced. For example, there were 4x more samples in stage 'F' than stage 'D'. 
+
+```{r}
+table(SScolData$Condition)
+```
+
+Thus, stage F samples are overrepresented in the calculation of mean expression in the non-focal groups. We can give each group equal weight in the contrasts. Let's see if that affects the results. 
+
+```{r}
+# function to make all groups have equal weight
+unweight_contrasts <- function(x){
+  x[between(x, 0.00000001, 0.99999999)] <- 1/9
+  return(x)
+}
+
+# calculate contrasts for each focal group vs all other groups
+DEGs_condA2 <- results(ConditionM3_noLRT, contrast = condA - unweight_contrasts(all_butA))
+DEGs_condB2 <- results(ConditionM3_noLRT, contrast = condB - unweight_contrasts(all_butB))
+DEGs_condC2 <- results(ConditionM3_noLRT, contrast = condC - unweight_contrasts(all_butC))
+DEGs_condD2 <- results(ConditionM3_noLRT, contrast = condD - unweight_contrasts(all_butD))
+DEGs_condE2 <- results(ConditionM3_noLRT, contrast = condE - unweight_contrasts(all_butE))
+DEGs_condF2 <- results(ConditionM3_noLRT, contrast = condF - unweight_contrasts(all_butF))
+DEGs_condG2 <- results(ConditionM3_noLRT, contrast = condG - unweight_contrasts(all_butG))
+DEGs_condH2 <- results(ConditionM3_noLRT, contrast = condH - unweight_contrasts(all_butH))
+DEGs_condI2 <- results(ConditionM3_noLRT, contrast = condI - unweight_contrasts(all_butI))
+DEGs_condL2 <- results(ConditionM3_noLRT, contrast = condL - unweight_contrasts(all_butL))
+
+# extract the genes with p-values below 0.001
+DE_each_group2 <- bind_rows(
+  make_df_for_each_focal_comp(DEGs_condA2, "A", 0.001),
+  make_df_for_each_focal_comp(DEGs_condB2, "B", 0.001),
+  make_df_for_each_focal_comp(DEGs_condC2, "C", 0.001),
+  make_df_for_each_focal_comp(DEGs_condD2, "D", 0.001),
+  make_df_for_each_focal_comp(DEGs_condE2, "E", 0.001),
+  make_df_for_each_focal_comp(DEGs_condF2, "F", 0.001),
+  make_df_for_each_focal_comp(DEGs_condG2, "G", 0.001),
+  make_df_for_each_focal_comp(DEGs_condH2, "H", 0.001),
+  make_df_for_each_focal_comp(DEGs_condI2, "I", 0.001),
+  make_df_for_each_focal_comp(DEGs_condL2, "L", 0.001)
+)
+
+DE_numbers_by_grp2 <- DE_each_group2%>%
+  group_by(condition)%>%
+  summarise(upreg = sum(diff_exp == "up", na.rm = T),
+            downreg = sum(diff_exp == "down", na.rm = T),
+            noDE = sum(diff_exp == "no", na.rm = T),
+            total_tested = sum(!is.na(padj)))
+# DE_numbers_by_grp2
+```
+```{r}
+# combine the data frames, with and without weighted groups
+DE_comparing_contrasts <- DE_each_group%>%
+  left_join(., 
+            select(DE_each_group2, gene, condition, base_mean2 = base_mean, lfc2 = lfc, padj2 = padj))
+```
+
+This plot shows how well the two contrasts are correlated. The x-axis is the log fold change between the focal group (panel) and unadjusted mean expression in the remaining groups. The y-axis, by contrast, is the log fold change when the mean expression in the non-focal groups was adjusted, such that each devo stage had equal weight. The correlations are quite tight and close to the 1:1 line. This is reassuring, as it suggests that effect sizes like log fold changes are not strongly affected by unbalanced sampling. Then again, in groups C and D, which had low sample sizes, the observed trend line is flatter than the 1:1 line, suggesting that some effect sizes may be exaggerated by the uneven sampling. Group H, by contrast, shows a steeper trend than the 1:1 line, suggesting that differences in this group are reduced by uneven sampling.
+
+```{r}
+ggplot(DE_comparing_contrasts, aes(lfc, lfc2)) +
+  geom_point(alpha = 0.05) +
+  geom_abline() +
+  geom_smooth(method = lm, se = F, linetype = "dashed") +
+  labs(x = "LfC, unadjusted", y = "LfC, adjusted") +
+  facet_wrap(~condition) +
+  coord_cartesian(xlim = c(-10,10), ylim = c(-10,10) )
+```
+
+Another way to show this is to plot the the number of significantly upregulated genes in a given stage, as calculated with the two different contrasts. Again, there is a clear correlation, but it is not perfect. For instance, the adjusted contrasts identify fewer DEGs in C and D but more in H.
+
+```{r}
+DE_comparing_contrasts <- DE_numbers_by_grp%>%
+  left_join(., 
+            select(DE_numbers_by_grp2, condition, upreg2 = upreg, downreg2 = downreg))
+ggplot(DE_comparing_contrasts, aes(upreg, upreg2)) +
+  geom_abline() +
+  geom_label(aes(label = condition)) +
+  labs(x = "Number upregulated, unadjusted", y = "Number upregulated, adjusted")
+```
+
+When calculating the mean expression, it makes sense to give each developmental stage equal weight, so we will use the adjusted, equal-weight contrasts going forward.
+
+# Shared expression among stages
+
 Some of the upregulated and downregulated genes should be shared among stages, e.g. upregulated in the first two developmental stages. Therefore, we calculated the proportion of genes that are shared among the up and down regulated genes for all pairwise combinations of stages.
 
 ```{r}
 # make diff express var wide at gene level
-DE_each_group_wide <- DE_each_group%>%
+DE_each_group_wide <- DE_each_group2%>%
   select(gene, condition, diff_exp)%>%
   pivot_wider(names_from = condition, values_from = diff_exp)
 
@@ -401,13 +614,13 @@ DE_pairwise_mat_long <- left_join(DE_tot_shared, DE_up_shared)%>%
 
 ```{r}
 DE_pairwise_mat_long$upreg[
-  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp$upreg
+  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp2$upreg
 
 DE_pairwise_mat_long$downreg[
-  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp$downreg
+  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp2$downreg
 
 DE_pairwise_mat_long$total_tested[
-  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp$total_tested
+  which(DE_pairwise_mat_long$term == DE_pairwise_mat_long$cond)] <- DE_numbers_by_grp2$total_tested
 ```
 
 All pairwise comparisons were summarized in a table like this (just the first entries shown). For example, of the genes upregulated in either A or B, `r DE_pairwise_mat_long%>%filter(term=="A", cond=="B")%>%.$upreg` were shared, or `DE_pairwise_mat_long%>%filter(term=="A", cond=="B")%>%.$upreg_prop%>%round(., 2) * 100`% of the total.
@@ -432,7 +645,7 @@ DE_pairwise_mat_plot <- bind_rows(
 
 These pairwise comparisons can be plotted as a matrix. The diagonal shows the number of significantly up- and down-regulated genes in the stage. Values above the diagonal show the proportion of up-regulated genes in the two stages that are shared. By contrast, the values below the diagonal show the proportion of shared down-regulated genes. It is clear that stages close in time (near the diagonal) have more similar gene expression (i.e. higher proportions of shared genes). 
 
-```{r}
+```{r matrix_plot_DEGs_prop}
 x_ax_lab <- c("free", "cop-inf", "cop-grow", "cop-trans", "fish-inf", "fish-grow", "fish-grow2", "fish-trans", "bird-inf", "bird-repr")
 
 ggplot(DE_pairwise_mat_plot%>%
@@ -455,31 +668,24 @@ ggplot(DE_pairwise_mat_plot%>%
         )
 ```
 
-```{r}
-# # randomly sample degs to roughly estimate what proportion would be shared between two random groups
-# degs <- int_condition%>%
-#   filter(padj < p_thresh)%>%row.names(.)
-# s1 <- sample(degs, 900)
-# s2 <- sample(degs, 2100)
-# sum(s1 %in% s2)/n_distinct(c(s1,s2))
-```
-
 Of particular interest are genes that are up- or down-regulated in similar functional stages. Here are the three "infecting" stages. They do not share many upregulated genes. However, the copepod-infecting and fish-infecting stages share some downregulated genes.
 
 ```{r}
 DE_pairwise_mat_long%>%
   filter(term %in% c("B", "E", "I"), cond %in% c("B", "E", "I"))
 ```
-It is hard to judge, though, if this is more or less sharing than expected by chance. A simple way to assess this is to make two random draws from the diff. expressed genes and then see how many genes should be shared among pairs by chance. For example, there were 2293 and 1468 significantly down-regulated genes in the two stages. So, let's take that many genes from the 'universe' of ~11000 differentially expressed genes and then see how many just happen to be shared across the two groups. 
+
+It is hard to judge, though, if this is more or less sharing than expected by chance. A simple way to assess this is to make two random draws from the DEGs and then see how many genes should be shared among pairs by chance. For example, there were 2221 and 1149 significantly down-regulated genes in the two stages. So, let's take random draws of that many genes from the 'universe' of ~11000 differentially expressed genes and then see how many just happen to be shared across the two groups. 
 
 ```{r}
+p_thresh <- 0.001
 # # randomly sample degs to roughly estimate what proportion would be shared between two random groups
 degs <- int_condition%>%
   filter(padj < p_thresh)%>%row.names(.) # all DEGs
 # take samples
 for(x in 1:50){
-  s1 <- sample(degs, 2293)
-  s2 <- sample(degs, 1468)
+  s1 <- sample(degs, 2221)
+  s2 <- sample(degs, 1149)
   exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
   if(x==1){
     out_v <- exp_p
@@ -490,73 +696,596 @@ for(x in 1:50){
 summary(out_v)
 ```
 
-This simple test suggests about 8 or 9% of the genes should be shared just by chance. The actual value is a little bit higher, suggesting that invasion may involve downregulating some of the same genes.
-
-Here is the same table but for growing stages.
+This simple test suggests about 8-10% of the genes should be shared just by chance, which matches the observed value reasonably well. Rather than a permutation test, a perhaps simpler way to test this is with a contingency table and chi-square test.
 
 ```{r}
-DE_pairwise_mat_long%>%
-  filter(term %in% c("C", "F", "G"), cond %in% c("C", "F", "G"))
+ct1 <- chisq.test(
+  x = DE_each_group2%>%filter(condition == "B")%>%.$diff_exp,
+  y = DE_each_group2%>%filter(condition == "E")%>%.$diff_exp
+  )
 ```
 
-The two stages in sticklebacks (F and G) are quite similar. The stage in copepods and first one in fish (C and F) also share a fair number of upregulated genes (8%). However, this level of sharing is not much higher than you would expect by chance.
+Here is the observed contingency table for significantly up- and down-regulated genes in the copepod- and fish-infecting groups.
 
 ```{r}
-# take samples
+ct1$observed
+```
+
+The chi-square test is significant, suggesting that up and down regulation is not proportional in the two groups.
+
+```{r}
+ct1
+```
+
+Here is how the observed values differ from the expected, proportional values. In particular, there were more down-regulated genes shared between the two groups than expected by chance. Still, this 3x3 table is harder to interpret than a 2x2 table. 
+
+```{r}
+round(ct1$observed - ct1$expected)
+```
+
+Thus, let's rerun this chi-square test twice more, once with genes simply categorized as up-regulated or not and once as down-regulated or not. We start with looking at the overlap in upregulated genes.
+
+```{r}
+ct2 <- chisq.test(
+  x = DE_each_group2%>%filter(condition == "B")%>%mutate(diff_exp = if_else(diff_exp=="down", "no", diff_exp))%>%.$diff_exp,
+  y = DE_each_group2%>%filter(condition == "E")%>%mutate(diff_exp = if_else(diff_exp=="down", "no", diff_exp))%>%.$diff_exp
+  )
+```
+
+Here the chi-square test is marginally significant; these two infecting stages actually share fewer upregulated genes than expected by chance.
+
+```{r}
+ct2
+
+# # the tables 
+ct2$observed
+round(ct2$expected,1)
+round(ct2$observed - ct2$expected)
+```
+
+```{r}
+ct2 <- chisq.test(
+  x = DE_each_group2%>%filter(condition == "B")%>%mutate(diff_exp = if_else(diff_exp=="up", "no", diff_exp))%>%.$diff_exp,
+  y = DE_each_group2%>%filter(condition == "E")%>%mutate(diff_exp = if_else(diff_exp=="up", "no", diff_exp))%>%.$diff_exp
+  )
+```
+
+By contrast, the down-regulated genes in these two groups do overlap more than we would expect by chance.
+
+```{r}
+ct2
+
+# # the tables 
+# ct2$observed
+# round(ct2$expected,1)
+round(ct2$observed - ct2$expected)
+```
+
+The contingency table and chi-square test can also indicate when two groups share fewer DEGs than expected by chance. For instance, let's compare two transmission stages: the mature procercoid in copepods (D) and the mature plerocercoid from fish (H). The chi-square test is highly significant.
+
+```{r}
+ct1 <- chisq.test(
+  x = DE_each_group2%>%filter(condition == "D")%>%.$diff_exp,
+  y = DE_each_group2%>%filter(condition == "H")%>%.$diff_exp
+  )
+ct1
+```
+
+However, the reason is that many of the up-regulated genes in one group are down-regulated in the other. Here are the differences from expected values; the up-down combinations are overrepresented.
+
+```{r}
+round(ct1$observed - ct1$expected)
+```
+
+Rather than looking at contingency tables of up- and down-regulated genes, it may be simpler to just look at the pairwise correlations (i.e. the table above implies a negative correlation). A correlation also avoids the issue of using arbitrary significance thresholds to put DEGs into buckets.
+
+`DESeq2` provides log fold changes, which we calculated for each focal group vs all other groups in the life cycle. This quantifies expression changes in the focal group, relative to the rest of the life cycle. The log fold changes can be correlated across stages, such that if some genes are upregulated in multiple stages, they would drive a correlation in the log fold changes. Thus, let's look at the spearman correlations among the model-estimated log fold changes for all pairs of stages.
+
+```{r}
+# make diff express var wide at gene level
+DE_each_group_wide2 <- DE_each_group2%>%
+  select(gene, condition, lfc)%>%
+  pivot_wider(names_from = condition, values_from = lfc)
+
+# calculate spearman correlations for each pairwise comparison
+spear_cor <- function(v1, v2){cor.test(x = v1, y = v2, method = "spearman")$estimate}
+p_cor <- function(v1, v2){cor.test(x = v1, y = v2, method = "spearman")$p.value}
+
+DE_spear <- DE_each_group_wide2%>%
+  select(-gene)%>%
+  corrr::colpair_map(., spear_cor)
+DE_spear_pval <- DE_each_group_wide2%>%
+  select(-gene)%>%
+  corrr::colpair_map(., p_cor)
+
+# make long again
+DE_spear <- DE_spear%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "spearman_rho")
+  # filter(term <= cond) # take lower tri
+DE_spear_pval <- DE_spear_pval%>%
+  pivot_longer(A:L, names_to = "cond", values_to = "spearman_pval")
+
+DE_spear_long <- left_join(DE_spear, DE_spear_pval)
+```
+
+```{r}
+DE_pairwise_mat_long_spear <- DE_pairwise_mat_long%>%
+  left_join(., DE_spear_long)
+```
+
+```{r}
+DE_pairwise_mat_plot2 <- bind_rows(
+  DE_pairwise_mat_long_spear%>%
+    filter(term == cond)%>%
+    select(term, cond, shared_prop = upreg_prop, upreg, downreg),
+  DE_pairwise_mat_long_spear%>%
+    filter(term > cond)%>%
+    mutate(shared_prop = NA_real_)%>%
+    select(term, cond, shared_prop),
+  DE_pairwise_mat_long_spear%>%
+    filter(term < cond)%>%
+    select(term, cond, shared_prop = spearman_rho)
+)
+```
+
+We can plot the correlations as a matrix as above. The diagonal shows the number of significantly up- and down-regulated genes in the stage, whereas below the diagonal the spearman correlations are shown. Close to the diagonal (successive stages, particularly those near to one another in time) correlations are positive, indicating the same genes are up- or down-regulated, relative to the rest of the cycle. Further from the diagonal, the correlations are negative, suggesting that genes up-regulated in one stage are down-regulated in the other stage. I also put colored boxes around the most interesting comparisons: similar functions, different hosts. They are negative too, which is at least superficially consistent with decoupling.
+
+```{r}
+# id functional stage
+DE_pairwise_mat_plot2 <- DE_pairwise_mat_plot2%>%
+  mutate(func_grp = case_when(
+    term == cond ~ NA_character_,
+    term %in% c("B", "E", "I") & cond %in% c("B", "E", "I") ~ "infecting",
+    term %in% c("C", "F", "G") & cond %in% c("C", "F", "G") ~ "growing",
+    term %in% c("D", "H") & cond %in% c("D", "H") ~ "trans"
+    ))
+```
+
+```{r matrix_plot_spearman}
+corr_mat_ge <- ggplot(DE_pairwise_mat_plot2%>%
+         filter(term <= cond)%>%
+         mutate(prop_chr = if_else(is.na(shared_prop), 
+                                   paste0(upreg, "\n", downreg),
+                                   as.character(round(shared_prop, 2))),
+                cond = fct_rev(cond)),
+       aes(x = term, y = cond, fill = shared_prop)) +
+  geom_tile(color = "gray"
+    ) +
+  geom_tile(data = DE_pairwise_mat_plot2%>%filter(term <= cond, !is.na(func_grp)),
+            aes(color = func_grp), size = 1.5
+    # color = "gray"
+    ) +
+  geom_text(aes(label = prop_chr)) +
+  scale_color_brewer(name = "Function", palette = "Dark2") +
+  scale_fill_distiller(name = "Spearman",
+                       palette = "RdBu", direction = -1, na.value = "white") +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90),
+                   expand = c(0,0)) +
+  scale_y_discrete(labels = rev(x_ax_lab), 
+                   expand = c(0,0)) +
+  theme(axis.title = element_blank(),
+        panel.grid.major = element_blank()
+        # axis.text.y = element_blank()
+        )
+corr_mat_ge
+```
+
+Above the diagonal, we can add the actual data. The dotted lines represent zero log fold change in the group, relative to the rest of the cycle.
+
+```{r}
+make_mat_plot <- function(dx, x, y){
+  px <- ggplot(dx,
+         aes({{x}}, {{y}})) +
+    geom_point(size = 0.01, color = "gray") +
+    geom_hline(yintercept = 0, linetype = "dotted") +
+    geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(se = F) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10,10) ) +
+    theme(axis.title = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          panel.border = element_rect(color = NA),
+          plot.background = element_rect(color = NA),
+          plot.margin = margin(0,0,0,0))
+  return(px)
+}
+```
+```{r}
+pal_grps <- RColorBrewer::brewer.pal(3, "Dark2")
+```
+
+```{r matrix_plot_spearman2}
+corr_mat_ge + 
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, B)),
+    xmin = 1.51, xmax = 2.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, C)),
+    xmin = 2.51, xmax = 3.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, C)),
+    xmin = 2.51, xmax = 3.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, `F`, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, `F`, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, `F`, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, G, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, G, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, G, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, H, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 2.51, ymax = 3.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, H, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 2.51, ymax = 3.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, I, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 1.51, ymax = 2.49) +
+  # growing
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, `F`) + 
+                 theme(panel.border = element_rect(color=pal_grps[1], size=2))),
+    xmin = 5.51, xmax = 6.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, C, G) + 
+                 theme(panel.border = element_rect(color=pal_grps[1], size=2))),
+    xmin = 6.51, xmax = 7.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, `F`, G) + 
+                 theme(panel.border = element_rect(color=pal_grps[1], size=2))),
+    xmin = 6.51, xmax = 7.49, ymin = 4.51, ymax = 5.49) +
+  # infecting
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, E) + 
+                 theme(panel.border = element_rect(color=pal_grps[2], size=2))),
+    xmin = 4.51, xmax = 5.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, B, I) + 
+                 theme(panel.border = element_rect(color=pal_grps[2], size=2))),
+    xmin = 8.51, xmax = 9.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, I) + 
+                 theme(panel.border = element_rect(color=pal_grps[2], size=2))),
+    xmin = 8.51, xmax = 9.49, ymin = 5.51, ymax = 6.49) +
+  # transmission
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, H) + 
+                 theme(panel.border = element_rect(color=pal_grps[3], size=2))),
+    xmin = 7.51, xmax = 8.49, ymin = 6.51, ymax = 7.49)
+```
+
+Given the naive assumption that most correlations should be zero, the frequency of negative correlations is surprising. They are highly negative for the most distinct life stages, the coracidia and the reproducing adult worm. This makes sense when we realize that log fold changes are ratios. For example, the log fold change for stage A is calculated as follows: A/(mean(B+C+D...). This is then correlated with the log fold change for another stage, like B: B/(mean(A+C+D...)). Notice how A (or B) is in the numerator in one variable and the denominator in the other. This generates negative correlations, especially when A or B is very distinctive. So once again, it is hard to judge whether these correlations diverge more than expected by chance.
+
+One way to avoid this problem would be to work with raw counts instead of fold-change ratios. For each gene, I took the median count for each of the 10 life stages. Then, I calculated all the pairwise, gene-level spearman correlations. They are consistently positive, which makes sense, since highly expressed genes tend to be highly expressed across all life stages. So, we should stick with fold changes.
+
+```{r}
+counts_long <- SScountdf%>%
+  mutate(gene = row.names(SScountdf))%>%
+  filter(!gene %in% low_genes)%>%
+  pivot_longer(ConditionA01:ConditionL10, names_to = "sample_id", values_to = "count")%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = sample_id))
+
+counts_grp_avg <- counts_long%>%
+  group_by(gene, grp)%>%
+  summarise(med_count = median(count))
+
+counts_grp_avg_wide <- counts_grp_avg%>%
+  pivot_wider(names_from = grp, values_from = med_count)
+
+# calculate spearman correlations for each pairwise comparison
+DE_spear_counts <- counts_grp_avg_wide%>%
+  ungroup()%>%
+  select(-gene)%>%
+  corrr::colpair_map(., spear_cor)
+DE_spear_counts
+```
+
+To form an expectation for the correlations between fold changes, I randomly permuted the "life stage" label across the samples. Then, I re-fit the NB models, extracted the contrasts (focal vs all other stages), and calculated the spearman correlations. Refitting the models takes some time, so I only ran 50 permutations.
+
+```{r}
 for(x in 1:50){
-  s1 <- sample(degs, 1425)
-  s2 <- sample(degs, 1549)
-  exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
-  if(x==1){
-    out_v <- exp_p
+  # make permuted data by changing column names
+  SScountdf_perm <- SScountdf
+  colnames(SScountdf_perm) <- sample(colnames(SScountdf_perm), replace = F)
+  
+  # refit model
+  M3_perm <- DESeqDataSetFromMatrix(
+    countData = SScountdf_perm,
+    colData = SScolData[colnames(SScountdf_perm),],
+    design= ~ Condition)
+  
+  ConditionM3_perm <- DESeq(M3_perm)
+  
+  # model matrix to calculate contrasts
+  mod_mat <- model.matrix(design(ConditionM3_perm), colData(ConditionM3_perm))
+  
+  # to extract means for each group
+  condA_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionA", ])
+  condB_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionB", ])
+  condC_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionC", ])
+  condD_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionD", ])
+  condE_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionE", ])
+  condF_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionF", ])
+  condG_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionG", ])
+  condH_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionH", ])
+  condI_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionI", ])
+  condL_perm <- colMeans(mod_mat[ConditionM3_perm$Condition == "ConditionL", ])
+  
+  # to extract means for all groups besides the focal group
+  all_butA_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionA", ])
+  all_butB_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionB", ])
+  all_butC_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionC", ])
+  all_butD_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionD", ])
+  all_butE_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionE", ])
+  all_butF_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionF", ])
+  all_butG_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionG", ])
+  all_butH_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionH", ])
+  all_butI_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionI", ])
+  all_butL_perm <- colMeans(mod_mat[ConditionM3_perm$Condition != "ConditionL", ])
+  
+  # calculate contrasts for each focal group vs all other groups
+  DEGs_condA2_perm <- results(ConditionM3_perm, contrast = condA_perm - unweight_contrasts(all_butA_perm))
+  DEGs_condB2_perm <- results(ConditionM3_perm, contrast = condB_perm - unweight_contrasts(all_butB_perm))
+  DEGs_condC2_perm <- results(ConditionM3_perm, contrast = condC_perm - unweight_contrasts(all_butC_perm))
+  DEGs_condD2_perm <- results(ConditionM3_perm, contrast = condD_perm - unweight_contrasts(all_butD_perm))
+  DEGs_condE2_perm <- results(ConditionM3_perm, contrast = condE_perm - unweight_contrasts(all_butE_perm))
+  DEGs_condF2_perm <- results(ConditionM3_perm, contrast = condF_perm - unweight_contrasts(all_butF_perm))
+  DEGs_condG2_perm <- results(ConditionM3_perm, contrast = condG_perm - unweight_contrasts(all_butG_perm))
+  DEGs_condH2_perm <- results(ConditionM3_perm, contrast = condH_perm - unweight_contrasts(all_butH_perm))
+  DEGs_condI2_perm <- results(ConditionM3_perm, contrast = condI_perm - unweight_contrasts(all_butI_perm))
+  DEGs_condL2_perm <- results(ConditionM3_perm, contrast = condL_perm - unweight_contrasts(all_butL_perm))
+  
+  # extract the genes with p-values below 0.001
+  DE_each_group_perm <- bind_rows(
+    make_df_for_each_focal_comp(DEGs_condA2_perm, "A", 0.001),
+    make_df_for_each_focal_comp(DEGs_condB2_perm, "B", 0.001),
+    make_df_for_each_focal_comp(DEGs_condC2_perm, "C", 0.001),
+    make_df_for_each_focal_comp(DEGs_condD2_perm, "D", 0.001),
+    make_df_for_each_focal_comp(DEGs_condE2_perm, "E", 0.001),
+    make_df_for_each_focal_comp(DEGs_condF2_perm, "F", 0.001),
+    make_df_for_each_focal_comp(DEGs_condG2_perm, "G", 0.001),
+    make_df_for_each_focal_comp(DEGs_condH2_perm, "H", 0.001),
+    make_df_for_each_focal_comp(DEGs_condI2_perm, "I", 0.001),
+    make_df_for_each_focal_comp(DEGs_condL2_perm, "L", 0.001)
+  )
+  
+  # make diff express var wide at gene level
+  DE_each_group_wide_perm <- DE_each_group_perm%>%
+    select(gene, condition, lfc)%>%
+    pivot_wider(names_from = condition, values_from = lfc)
+  
+  # calculate spearman correlations for each pairwise comparison
+  DE_spear_perm <- DE_each_group_wide_perm%>%
+    select(-gene)%>%
+    corrr::colpair_map(., spear_cor)
+  # DE_spear_pval_perm <- DE_each_group_wide_perm%>%
+  #   select(-gene)%>%
+  #   corrr::colpair_map(., p_cor)
+  
+  # make long again
+  DE_spear_perm <- DE_spear_perm%>%
+    pivot_longer(A:L, names_to = "cond", values_to = "spearman_rho")
+  # DE_spear_pval_perm <- DE_spear_pval_perm%>%
+  #   pivot_longer(A:L, names_to = "cond", values_to = "spearman_pval")
+  
+  # DE_spear_long_perm <- left_join(DE_spear_perm, DE_spear_pval_perm)
+  DE_spear_long_perm <- DE_spear_perm
+  DE_spear_long_perm$perm <- x
+  
+  if(x == 1){
+    DE_spear_long_out <- DE_spear_long_perm
   } else {
-    out_v <- c(out_v, exp_p)
+    DE_spear_long_out <- bind_rows(DE_spear_long_out, DE_spear_long_perm)
   }
+  print(paste0("finished iteration ", as.character(x)))
 }
-summary(out_v)
+
+```
+```{r}
+# DE_spear_long_out%>%
+#   select(term, cond, spearman_rho, perm)%>%
+#   pivot_wider(names_from = perm, values_from = spearman_rho)%>%
+#   ggplot(., aes(`1`, `2`)) + geom_point() + geom_smooth()
+  
+
+# DE_spear_long_out%>%
+#   group_by(term, cond)%>%
+#   summarize(med_rho = median(spearman_rho),
+#             # upr_rho = quantile(spearman_rho, probs = 0.975, na.rm =T),
+#             # lwr_rho = quantile(spearman_rho, probs = 0.025, na.rm =T),
+#             upr_rho = max(spearman_rho, na.rm =T),
+#             lwr_rho = min(spearman_rho, na.rm =T))
 ```
 
-Finally, here is the table for transmission stages. The initial coracidia (A) has a quite different profile compared to the stages in copepods and fish (D, H).
+Here is the distribution of "random" pairwise correlations (50 permutations x 45 pairwise correlation estimates). The blue line is the median. It skews negative, confirming the suspicion that negative correlations are "baked in". The breadth of the distribution is also noteworthy; correlations between 0.5 and -0.5 are expected to commonly occur just by chance.
 
 ```{r}
-DE_pairwise_mat_long%>%
-  filter(term %in% c("A", "D", "H"), cond %in% c("A", "D", "H"))
+DE_spear_long_out%>%
+  filter(term < cond)%>%
+  ggplot(., aes(spearman_rho)) +
+  geom_histogram(aes(y=..density..)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  geom_vline(data=DE_spear_long_out%>%
+               filter(term < cond)%>%
+               summarize(med_rho = median(spearman_rho)),
+             aes(xintercept = med_rho), color = "blue")
 ```
 
-But the 5% overlap in upregulated genes between fish and copepod transmission stages is actually less than we would expect by chance.
+A worry is if some pairs of correlations are more susceptible to bias due to sample size. That is, groups with low sample sizes (C, D) should have broader distributions of expected correlations than groups with higher sample sizes (F, H, L). This is not obviously the case, though some pairs seem to have lower expected correlations than others.
 
 ```{r}
-# take samples
-for(x in 1:50){
-  s1 <- sample(degs, 932)
-  s2 <- sample(degs, 2103)
-  exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
-  if(x==1){
-    out_v <- exp_p
-  } else {
-    out_v <- c(out_v, exp_p)
-  }
-}
-summary(out_v)
+ggplot(DE_spear_long_out%>%
+         filter(term < cond),
+       aes(x = spearman_rho)) +
+  geom_histogram(aes(y=..density..)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  geom_vline(data=DE_spear_long_out%>%
+               filter(term < cond)%>%
+               group_by(term, cond)%>%
+               summarize(med_rho = median(spearman_rho)),
+             aes(xintercept = med_rho), color = "blue") +
+  facet_grid(term ~ cond) +
+  theme(panel.grid.major.y = element_blank())
 ```
 
-We can also extract these genes. Here are the first few genes that were upregulated in the transmission stages in both copepods and fish.
 
 ```{r}
-DE_each_group%>%
-  filter(condition %in% c("H", "D"), !is.na(padj))%>%
-  select(gene, condition, diff_exp)%>%
-  pivot_wider(names_from = condition, values_from = diff_exp)%>%
-  filter(H=="up", D=="up")%>%.$gene%>%head()
+DE_spear_long_plot <- DE_spear_long_out%>%
+  filter(term < cond)%>%
+  group_by(term, cond)%>%
+  summarize(med_rho = median(spearman_rho),
+            upr_rho = quantile(spearman_rho, probs = 0.975, na.rm =T),
+            lwr_rho = quantile(spearman_rho, probs = 0.025, na.rm =T)
+            # upr_rho = max(spearman_rho, na.rm =T),
+            # lwr_rho = min(spearman_rho, na.rm =T)
+            )%>%
+  ungroup()%>%
+  mutate(pair = paste0(term, "_", cond))%>%
+  mutate(func_grp = case_when(
+    pair %in% c("A_B", "B_C", "C_D", "D_E", "E_F", "F_G", "G_H", "H_I", "I_L") ~ "consecutive",
+    term %in% c("B", "E", "I") & cond %in% c("B", "E", "I") ~ "function: infecting",
+    term %in% c("C", "F", "G") & cond %in% c("C", "F", "G") ~ "function: growth",
+    term %in% c("D", "H") & cond %in% c("D", "H") ~ "function: transmission",
+    !is.na(pair) ~ "non-consecutive")
+    )
+DE_spear_long_plot <- DE_spear_long_plot%>%
+  left_join(., 
+            DE_pairwise_mat_plot2%>%
+              filter(term < cond)%>%
+              mutate(pair = paste0(term, "_", cond))%>%
+              select(pair, obs_spearman = shared_prop))
 ```
 
-The table listing the up- and down-regulated genes in each group was written to file.
+Here is another way to plot the results. The bars show the median and 95% CI for "random" pairwise correlations. These permuted values often overlap zero, but definitely skew negative. The colored data points are the observed relationships and pairs are ordered by whether they are consecutive life stages, functionally similar but different hosts, or non-consecutive. Consecutive life stages tend to have similar expression (more positive than expected by chance, though there are some interesting exceptions). The functionally similar stages are not more similar than expected by chance, but they are also not more different than expected. The remaining correlations are usually lower than expected - genes upregulated in one stage are downregulated at other parts of the cycle - but the patterns are not pronounced, i.e. negative correlations were not greater than expected by chance.
 
 ```{r}
-write.csv(DE_each_group, file = "../data/DEGs_by_devo_stage.csv", row.names = F)
+DE_spear_long_plot%>%
+  arrange(func_grp)%>%
+  mutate(pair = fct_inorder(pair))%>%
+  ggplot(., aes(x = pair, y = med_rho)) + 
+  geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
+  geom_point(aes(x = pair, y = obs_spearman, color = func_grp),
+             shape = 15, size = 2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  coord_flip() + 
+  scale_x_discrete(limits = rev) +
+  labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
+  theme(panel.grid.major.y = element_blank())
 ```
 
-Finally, a note of caution about the DEGs. This [paper](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-022-02648-4) shows how DESeq2 may be anticonservative and impacted by outliers (which is one reason that a rather stringent, low p-value was chosen). They further suggest that wilcoxon rank tests may be a more appropriate way to measure DGE, though our sample sizes per group may be on the low size for those non-parametric tests. Still, let's quickly examine how big of a problem this might be. Using just the subset of ~11000 genes that appear DE at some life stage (i.e. were significant in the full model), we can compare the first two developmental stages, which were rather similar. For every gene, we calculate a wilcoxon test.
+Here are whether observed spearman correlations were greater or less than expected, by group.
+
+```{r}
+DE_spear_long_plot%>%
+  group_by(func_grp)%>%
+  summarize(n = n(),
+            cor_lower_than_expected = sum(obs_spearman < med_rho),
+            cor_sig_lower = sum(obs_spearman < lwr_rho),
+            cor_sig_higher = sum(obs_spearman > upr_rho))
+```
+
+The genes that are up- and down-regulated at each stage, relative to the rest of the life cycle, are to be used in the enrichment analyses, so the table listing the up- and down-regulated genes in each group was written to file.
+
+```{r}
+write.csv(DE_each_group2, file = "../data/DEGs_by_devo_stage.csv", row.names = F)
+```
+
+# DESeq2 vs Wilcoxon tests
+
+Finally, a note of caution about the DEGs. This [paper](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-022-02648-4) shows how `DESeq2` may be anticonservative and impacted by outliers (which is one reason that a rather stringent, low p-value was chosen). They further suggest that wilcoxon rank tests may be a more appropriate way to measure DGE, though our sample sizes per group may be on the low size for those non-parametric tests. Still, let's quickly examine how big of a problem this might be. Using just the subset of ~11000 genes that appear DE at some life stage (i.e. were significant in the full model), we can compare the first two developmental stages, which were rather similar. For every gene, we calculate a wilcoxon test.
 
 ```{r}
 conditions <- SScolData%>%
@@ -758,3 +1487,9 @@ The spearman correlation between p-values is even clearer, suggesting that the D
 ```{r}
 cor.test(dge_AL$padj, dge_AL$pval_wilc2, method = "spearman", use = "pairwise")
 ```
+
+```{r}
+save.image(file = "DEG_model_script_out.RData")
+sessionInfo()
+```
+
