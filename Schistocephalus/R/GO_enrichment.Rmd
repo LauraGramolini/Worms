@@ -94,6 +94,11 @@ names(allGenesI) <- ConditionI$gene
 allGenesL <- as.numeric(ConditionL$padj)
 names(allGenesL) <- ConditionL$gene
 ```
+
+
+
+
+
 Here we could create a list of these vectors to put them in a loop(?)
 ```{r}
 
@@ -102,11 +107,17 @@ Create the gene universe file (allGenes in topGO) in a loop?:
 ```{r}
 
 ```
-define the DEGs function (geneSel in topGO):
+
+
+
+
+
+Define the DEGs function (geneSel in topGO):
 ```{r}
 topDiffGenes <- function(allScore) {
 +    return(allScore < 0.001) }
 ```
+
 Prepare the functional annotation:
 ```{r}
 #Import annotation file
@@ -133,8 +144,8 @@ geneID2GO <- readMappings("~/GitHub/Worms/Schistocephalus/data/gene2GO.txt")
 str(head(geneID2GO))
 ```
 
-###Load everything in the topGO object
 
+###Load everything in the topGO object for each condition and test with ks
 First set the parameters for condition A:
 ```{r}
 #For Molecular functions
@@ -153,7 +164,7 @@ GOdataA_BP <- new("topGOdata",
                     ontology = "BP", 
                     description = "Simple session",
                     gene2GO = geneID2GO)
-#For cellular departments
+#For cellular compartment
 GOdataA_CC <- new("topGOdata",
                     allGenes = allGenesA, geneSel = topDiffGenes,
                     nodeSize =10,
@@ -163,20 +174,22 @@ GOdataA_CC <- new("topGOdata",
                     gene2GO = geneID2GO)
 ```
 ###Run the GO enrichment test
+For condition A:
 ```{r}
 resultsA_MF <- runTest(GOdataA_MF, algorithm = "elim", statistic = "ks")
 allResA_MF <- GenTable(GOdataA_MF, elimKS=resultsA_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResA_MF
 resultsA_BP <- runTest(GOdataA_BP, algorithm = "elim", statistic = "ks")
 allResA_BP <- GenTable(GOdataA_BP, elimKS=resultsA_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResA_BP
 resultsA_CC <- runTest(GOdataA_CC, algorithm = "elim", statistic = "ks")
 allResA_CC <- GenTable(GOdataA_CC, elimKS=resultsA_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResA_CC
 ```
+
 Set the parameters for condition B:
 ```{r}
 #For Molecular functions
@@ -208,15 +221,15 @@ Test condition B
 ```{r}
 resultsB_MF <- runTest(GOdataB_MF, algorithm = "elim", statistic = "ks")
 allResB_MF <- GenTable(GOdataB_MF, elimKS=resultsB_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResB_MF
 resultsB_BP <- runTest(GOdataB_BP, algorithm = "elim", statistic = "ks")
 allResB_BP <- GenTable(GOdataB_BP, elimKS=resultsB_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResB_BP
 resultsB_CC <- runTest(GOdataB_CC, algorithm = "elim", statistic = "ks")
 allResB_CC <- GenTable(GOdataB_CC, elimKS=resultsB_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResB_CC
 ```
 Set the parameters for condition C:
@@ -250,15 +263,15 @@ Test condition C
 ```{r}
 resultsC_MF <- runTest(GOdataC_MF, algorithm = "elim", statistic = "ks")
 allResC_MF <- GenTable(GOdataC_MF, elimKS=resultsC_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResC_MF
 resultsC_BP <- runTest(GOdataC_BP, algorithm = "elim", statistic = "ks")
 allResC_BP <- GenTable(GOdataC_BP, elimKS=resultsC_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResC_BP
 resultsC_CC <- runTest(GOdataC_CC, algorithm = "elim", statistic = "ks")
 allResC_CC <- GenTable(GOdataC_CC, elimKS=resultsC_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResC_CC
 ```
 Set the parameters for condition D:
@@ -292,15 +305,15 @@ Test condition D
 ```{r}
 resultsD_MF <- runTest(GOdataD_MF, algorithm = "elim", statistic = "ks")
 allResD_MF <- GenTable(GOdataD_MF, elimKS=resultsD_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResD_MF
 resultsD_BP <- runTest(GOdataD_BP, algorithm = "elim", statistic = "ks")
 allResD_BP <- GenTable(GOdataD_BP, elimKS=resultsD_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResD_BP
 resultsD_CC <- runTest(GOdataD_CC, algorithm = "elim", statistic = "ks")
 allResD_CC <- GenTable(GOdataD_CC, elimKS=resultsD_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResD_CC
 ```
 Set the parameters for condition E:
@@ -334,15 +347,15 @@ Test condition E
 ```{r}
 resultsE_MF <- runTest(GOdataE_MF, algorithm = "elim", statistic = "ks")
 allResE_MF <- GenTable(GOdataE_MF, elimKS=resultsE_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResE_MF
 resultsE_BP <- runTest(GOdataE_BP, algorithm = "elim", statistic = "ks")
 allResE_BP <- GenTable(GOdataE_BP, elimKS=resultsE_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResE_BP
 resultsE_CC <- runTest(GOdataE_CC, algorithm = "elim", statistic = "ks")
 allResE_CC <- GenTable(GOdataE_CC, elimKS=resultsE_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResE_CC
 ```
 Set the parameters for condition F:
@@ -376,15 +389,15 @@ Test condition F
 ```{r}
 resultsF_MF <- runTest(GOdataF_MF, algorithm = "elim", statistic = "ks")
 allResF_MF <- GenTable(GOdataF_MF, elimKS=resultsF_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResF_MF
 resultsF_BP <- runTest(GOdataF_BP, algorithm = "elim", statistic = "ks")
 allResF_BP <- GenTable(GOdataF_BP, elimKS=resultsF_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResF_BP
 resultsF_CC <- runTest(GOdataF_CC, algorithm = "elim", statistic = "ks")
 allResF_CC <- GenTable(GOdataF_CC, elimKS=resultsF_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResF_CC
 ```
 
@@ -420,15 +433,15 @@ Test condition G
 ```{r}
 resultsG_MF <- runTest(GOdataG_MF, algorithm = "elim", statistic = "ks")
 allResG_MF <- GenTable(GOdataG_MF, elimKS=resultsG_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResG_MF
 resultsG_BP <- runTest(GOdataG_BP, algorithm = "elim", statistic = "ks")
 allResG_BP <- GenTable(GOdataG_BP, elimKS=resultsG_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResG_BP
 resultsG_CC <- runTest(GOdataG_CC, algorithm = "elim", statistic = "ks")
 allResG_CC <- GenTable(GOdataG_CC, elimKS=resultsG_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResG_CC
 ```
 Set the parameters for condition H:
@@ -463,17 +476,18 @@ Test condition H
 ```{r}
 resultsH_MF <- runTest(GOdataH_MF, algorithm = "elim", statistic = "ks")
 allResH_MF <- GenTable(GOdataH_MF, elimKS=resultsH_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResH_MF
 resultsH_BP <- runTest(GOdataH_BP, algorithm = "elim", statistic = "ks")
 allResH_BP <- GenTable(GOdataH_BP, elimKS=resultsH_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResH_BP
 resultsH_CC <- runTest(GOdataH_CC, algorithm = "elim", statistic = "ks")
 allResH_CC <- GenTable(GOdataH_CC, elimKS=resultsH_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResH_CC
 ```
+
 
 Set the parameters for condition I:
 ```{r}
@@ -507,15 +521,15 @@ Test condition I
 ```{r}
 resultsI_MF <- runTest(GOdataI_MF, algorithm = "elim", statistic = "ks")
 allResI_MF <- GenTable(GOdataI_MF, elimKS=resultsI_MF,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResI_MF
 resultsI_BP <- runTest(GOdataI_BP, algorithm = "elim", statistic = "ks") 
 allResI_BP <- GenTable(GOdataI_BP, elimKS=resultsI_BP,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResI_BP
 resultsI_CC <- runTest(GOdataI_CC, algorithm = "elim", statistic = "ks")
 allResI_CC <- GenTable(GOdataI_CC, elimKS=resultsI_CC,
-                   orderBy ="elimKS", topNodes = 10)
+                   orderBy ="elimKS", topNodes = 100)
 allResI_CC
 ```
 
@@ -547,19 +561,117 @@ GOdataL_CC <- new("topGOdata",
                     gene2GO = geneID2GO)
 ```
 
-Test condition I
+Test condition L
 ```{r}
-resultsL_MF <- runTest(GOdataL_MF, algorithm = "elim", statistic = "ks")
-allResL_MF <- GenTable(GOdataL_MF, elimKS=resultsL_MF,
-                   orderBy ="elimKS", topNodes = 10)
-allResL_MF
+#resultsL_MF <- runTest(GOdataL_MF, algorithm = "elim", statistic = "ks")
+#allResL_MF <- GenTable(GOdataL_MF, elimKS=resultsL_MF,
+                   #orderBy ="elimKS", topNodes = 100)
+#allResL_MF
 resultsL_BP <- runTest(GOdataL_BP, algorithm = "elim", statistic = "ks")
-allResL_BP <- GenTable(GOdataL_BP, elimKS=resultsL_BP,
-                   orderBy ="elimKS", topNodes = 10)
+allResL_BP <- GenTable(GOdataL_BP, elimKS=resultsL_BP, topNodes = 500, orderBy = "elimKS") %>% 
+  mutate(eff_size=Significant / Expected)
+
 allResL_BP
-resultsL_CC <- runTest(GOdataL_CC, algorithm = "elim", statistic = "ks")
-allResL_CC <- GenTable(GOdataL_CC, elimKS=resultsL_CC,
-                   orderBy ="elimKS", topNodes = 10)
-allResL_CC
+
+#resultsL_CC <- runTest(GOdataL_CC, algorithm = "elim", statistic = "ks")
+#allResL_CC <- GenTable(GOdataL_CC, elimKS=resultsL_CC,
+                  # orderBy ="elimKS", topNodes = 100)
+#allResL_CC
 ```
+
+
+```{r}
+str(allResL_BP)
+allResL_BP$elimKS <- as.numeric(allResL_BP$elimKS) 
+
+allResL_BP %>% 
+  ggplot(aes(x=eff_size, y=elimKS))+
+  geom_point()+
+  geom_smooth(method = "lm")
+```
+
+
+```{r}
+filt_allResL_BP <- allResL_BP %>% 
+  filter(elimKS<0.0001)
+  
+
+filt_allResL_BP
+```
+
+
+####Trying with Fisher statistic
+For condition L
+```{r}
+F_resultsL_BP <- runTest(GOdataL_BP, algorithm = "weight", statistic = "Fisher")
+F_allResL_BP <- GenTable(GOdataL_BP, Fisher=F_resultsL_BP, orderBy="Fisher", topNodes=500) %>% 
+  mutate(eff_size=Significant / Expected)
+F_allResL_BP
+```
+
+
+```{r}
+F_allResL_BP$Fisher <- as.numeric(F_allResL_BP$Fisher) 
+F_allResL_BP %>% 
+  ggplot(aes(x=eff_size, y=Fisher))+
+  geom_point()+
+  geom_smooth(method="lm")
+```
+
+
+
+
+
+
+Now for all these table create a eff_size column (ratio between the significant and expected genes for each GO term) to put in relation with the "score", p value found by the Fisher algorithm:
+```{r}
+F_res <- list(F_allResA_BP, F_allResB_BP, F_allResC_BP,  F_allResD_BP, F_allResE_BP, F_allResF_BP, F_allResG_BP, F_allResH_BP, F_allResI_BP, F_allResL_BP)
+```
+
+Try the loop to add the delta column in each data frame:
+```{r}
+for(i in seq_along(F_res)) {
+  F_res[[i]] <-   mutate(F_res[[i]], eff_size= Significant / Expected)
+}
+```
+
+I can try to keep it in a list to apply loops on all the data frames (since the beginning of the script?). 
+
+BUTTTTT before calculating the eff_size I already selected only the lower p values!!!!! Remember that!
+
+I want to:
+-select Go Terms base on N genes, eff_size and p values
+-compare functional stages (each against all)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####Try with GSEA
+
+```{r}
+#detach("package:topGO", unload = TRUE)
+#library(GSEABase)
+```
+
+
+
+
+
 
