@@ -1,0 +1,516 @@
+---
+title: "Test_GO_corr"
+output: html_document
+date: '2023-03-08'
+---
+
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+# load gene level and GO-term level datasets
+DEGs <- read.csv("../data/DEGs_by_devo_stage.csv", header=TRUE, sep=",")
+GOs <- read.csv("../data/GOclusters.csv", header=TRUE, sep=" ")
+```
+```{r}
+DEGs$gene <- str_replace(DEGs$gene, "gene:", "")
+```
+
+Thus far, we examined differential gene expression between the stages of the Schistocephalus life cycle. Then, we performed gene set enrichment analysis to examine which types of functions are enriched/depleted in different life stages. In this script, we ask: are the genes that drive GO-term enrichment in one stage, also the same that drive it in other stages?
+
+For example, let's say in life stage A and B, some of the same GO-terms are enriched. Are the genes that drive GO-term enrichment in A the same as B? If so, then we would expect gene expression within the GO-term to be positively correlated, i.e. the upregulated genes with this function (GO term) are the same in stage A and B. Alternatively, if different genes drive the functional enrichment, then the correlation should be negative.
+
+```{r}
+# function to get gene list for each GO term
+get_gene_list <- function(df){
+  genes_in_go <- df%>%
+    .$core_enrichment%>%
+    str_split(., "/")%>%
+    unlist(.)%>%
+    unique(.)
+  return(genes_in_go)
+}
+
+# function to get conditions in which GO term sig enriched or depleted, relative to rest of cycle
+sig_enrich_depl_conditions <- function(df){
+  conds <- df%>%
+    filter(p.adjust < 0.01)%>%
+    .$condition
+  return(conds)
+}
+```
+
+
+```{r}
+# nest data by GO term
+GOs_nested <- GOs%>%
+  select(ID, condition, NES, p.adjust, core_enrichment)%>%
+  group_by(ID)%>%
+  nest()
+# apply gene list and sig conditions functions to each GO term
+GOs_nested <- GOs_nested%>%
+  mutate(genes_vec = map(data, get_gene_list),
+         sig_enrich_grps = map(data, sig_enrich_depl_conditions))
+```
+
+
+```{r}
+# for two conditions, make a wide df for gene-level data
+filtered_gene_lev_data <- function(df, var1, var2){
+  dx <- df%>%
+    filter(condition %in% c( {{var1}}, {{var2}}))%>%
+    select(gene, lfc, condition)%>%
+    pivot_wider(id_cols = c(gene), names_prefix = "cond",
+                names_from = condition, values_from = lfc)
+  return(dx)
+}
+
+# calculate gene-level correlation for a GO term
+go_level_cor <- function(genes_in_go){
+  dx <- filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+    filter(gene %in% genes_in_go)%>%
+    select(starts_with("cond"))
+  return(cor(dx)[2,1])
+}
+```
+
+
+```{r}
+# random correlation without regard to GO-term - null dist for GO cor
+rand_cor <- function(set_size){
+  dx <- filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+    sample_n(size = set_size)%>%
+    select(starts_with("cond"))
+  return(cor(dx)[2,1])
+}
+
+# id if both, one, or none of the two conditions were sig enriched for a GO term
+make_sig_grps_for_go <- function(sig_conds){
+  grp <- case_when(
+  grp1 %in% sig_conds &
+    grp2 %in% sig_conds ~ "both stages",
+  grp1 %in% sig_conds |
+    grp2 %in% sig_conds ~ "one stage",
+  !grp1 %in% sig_conds &
+    !grp2 %in% sig_conds ~ "no stages")
+  return(grp)
+}
+
+# test whether enrichment score goes in same direction in two conditions
+enrich_direction <- function(df){
+  dx <- df%>%
+    filter(condition %in% c(grp1, grp2))%>%
+    select(condition, NES)%>%
+    pivot_wider(names_from = condition, values_from = NES)
+  if(ncol(dx) < 2 ) {
+    direction <- NA_character_
+  } else {
+    direction <- 
+      if( (dx[,1] > 0 & dx[,2] > 0) | (dx[,1] < 0 & dx[,2] < 0) ) {
+        direction <- "same dir"
+      } else {
+        direction <- "diff dir"
+      }
+  }
+  
+  return(direction)
+}
+```
+
+```{r}
+# calculate overall correlation at gene level for two conditions
+overall_cor <- function(df, var1, var2){
+  dx <- df%>%
+    filter(condition %in% c( {{var1}}, {{var2}}))%>%
+    select(gene, lfc, condition)%>%
+    pivot_wider(id_cols = c(gene), names_prefix = "cond",
+                names_from = condition, values_from = lfc)%>%
+    select(starts_with("cond"))
+  return(cor(dx)[2,1])
+}
+# overall_cor(DEGs, "A", "B")
+```
+
+```{r}
+# plot distribution of correlation coefficients per GO term
+make_density_plot_for_condition_pairs <- function(df, var1, var2){
+  p <- ggplot(df, aes(go_cor, color = sig_grp)) +
+    geom_vline(xintercept = overall_cor(DEGs, var1, var2), color = "black", linetype = "dashed") +
+    geom_vline(xintercept = quantile(df$rand_cor, probs = 0.025), color = "black", linetype = "dotted") +
+    geom_vline(xintercept = quantile(df$rand_cor, probs = 0.975), color = "black", linetype = "dotted") +
+    geom_density() +
+    geom_text(data = df%>%
+      select(sig_grp, go_cor, NES_direction)%>%
+      group_by(sig_grp,NES_direction)%>%
+      summarize(y = max(density(go_cor)$y),
+                n = n()),
+    aes(x = 0.9, y = y, label = n)) +
+    labs(title = paste0(var1, " vs ", var2),
+         x = "Gene-level cor. coef. for GO-term",
+         y = "density",
+         color = "Enriched") +
+    scale_x_continuous(limits = c(-1,1)) +
+    facet_wrap( ~ NES_direction) +
+    theme_bw()
+  return(p)
+}
+```
+
+For every pairwise combination of parasite stages and for every GO-term, I calculate the following: 
+1) whether the GO-term is significantly enriched in both, one, or none of the two stages
+2) whether the GO-term enrichment score goes in the same or opposite direction for the two stages
+3) the pearson correlation between gene expression in the two terms
+
+Then, I plot the distribution of the gene-level correlations for the GO-terms.
+
+# A vs B
+
+```{r}
+grp1 <- "A"
+grp2 <- "B"
+
+GOs_nestedAB <- GOs_nested%>%
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+More variation in correlation coefficients, when GO-term includes just a few genes.
+
+```{r}
+ggplot(GOs_nestedAB, aes(gene_set_n, go_cor)) +
+  geom_point()
+```
+
+
+```{r}
+grp1 <- "A"
+grp2 <- "B"
+make_density_plot_for_condition_pairs(GOs_nestedAB, grp1, grp2)
+```
+
+# A vs C
+
+```{r}
+grp1 <- "A"
+grp2 <- "C"
+
+GOs_nestedAC <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+```{r}
+grp1 <- "A"
+grp2 <- "C"
+make_density_plot_for_condition_pairs(GOs_nestedAC, grp1, grp2)
+```
+
+```{r}
+# ggplot(GOs_nestedAC, aes(go_cor, color = sig_grp)) +
+#   geom_density() +
+#   geom_vline(xintercept = overall_cor(DEGs, grp1, grp2), color = "black", linetype = "dotted") +
+#   geom_text(data = GOs_nestedAC%>%
+#     select(sig_grp, go_cor,NES_direction)%>%
+#     group_by(sig_grp,NES_direction)%>%
+#     summarize(y = max(density(go_cor)$y),
+#               n = n()),
+#   aes(x = 1, y = y, label = n)) +
+#   facet_wrap( ~ NES_direction) +
+#   theme_bw()
+```
+# A vs H
+
+```{r}
+grp1 <- "A"
+grp2 <- "H"
+
+GOs_nestedAH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+grp1 <- "A"
+grp2 <- "H"
+make_density_plot_for_condition_pairs(GOs_nestedAH%>%filter(!is.na(NES_direction)), grp1, grp2)
+```
+
+
+# C vs F
+
+```{r}
+grp1 <- "C"
+grp2 <- "F"
+
+GOs_nestedCF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+```{r}
+ggplot(GOs_nestedCF, aes(gene_set_n, rand_cor)) +
+  geom_point(color = "gray") +
+  geom_point(aes(y = go_cor, color = sig_grp)) 
+```
+
+```{r}
+grp1 <- "C"
+grp2 <- "F"
+make_density_plot_for_condition_pairs(GOs_nestedCF%>%filter(!is.na(NES_direction)), grp1, grp2)
+```
+
+Looking for the GO terms most responsible for decoupling. The enrichment goes in the same direction, but correlation is negative. I will also remove the GO terms with low N, that are more likely to have a low correlation just by chance.
+
+```{r}
+GOs_nestedCF%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+Plot a couple of these.
+
+```{r}
+make_df_for_one_GO_term <- function(go_term, grp1, grp2){
+
+  genes_in_go <- GOs%>%
+    filter(ID == go_term)%>%
+    .$core_enrichment%>%
+    str_split(., "/")%>%
+    unlist(.)%>%
+    unique(.)
+  
+  dx <- bind_rows(
+    filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+      mutate(gene_in_go = "all"),
+    filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+      filter(gene %in% genes_in_go)%>%
+      mutate(gene_in_go = go_term)
+    )
+  
+  dx <- dx%>%rename_with(~ gsub("cond", "", .x))
+  return(dx)
+}
+```
+
+GO term is skeletal system development
+
+```{r}
+make_df_for_one_GO_term("GO:0001501", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: glycoprotein biosynthetic process
+
+```{r}
+make_df_for_one_GO_term("GO:0009101", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+```{r}
+GOs_nestedCF%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, desc(go_cor))
+```
+
+GO: Dynein chain binding
+```{r}
+make_df_for_one_GO_term("GO:0045505", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Enriched in different directions and negative correlation: decoupled!
+
+```{r}
+GOs_nestedCF%>%
+  filter(NES_direction=="diff dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, (go_cor))
+```
+
+GO term is: protein autophosphorylation
+
+```{r}
+make_df_for_one_GO_term("GO:0046777", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: glycosyltransferase activity
+
+```{r}
+make_df_for_one_GO_term("GO:0016757", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Enriched in different directions but positive correlation: coupled!
+
+```{r}
+GOs_nestedCF%>%
+  filter(NES_direction=="diff dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, desc(go_cor))
+```
+
+GO term: microtubule associated complex
+
+```{r}
+make_df_for_one_GO_term("GO:0005875", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+
+# F vs G
+
+```{r}
+grp1 <- "F"
+grp2 <- "G"
+
+GOs_nestedFG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedFG, grp1, grp2)
+```
+
+
+# F vs L
+
+```{r}
+grp1 <- "F"
+grp2 <- "L"
+
+GOs_nestedFL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedFL%>%filter(!is.na(NES_direction)), grp1, grp2)
+```
+
+
+
+# D vs H
+
+```{r}
+grp1 <- "D"
+grp2 <- "H"
+
+GOs_nestedDH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedDH, grp1, grp2)
+```
+
+
+# E vs I
+
+```{r}
+grp1 <- "E"
+grp2 <- "I"
+
+GOs_nestedEI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedEI, grp1, grp2)
+```
+
+
+
+
+
+
+
+
