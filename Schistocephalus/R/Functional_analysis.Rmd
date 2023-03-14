@@ -1,0 +1,1095 @@
+---
+title: "Functional comparison"
+author: "Laura Gramolini"
+date: '2023-01-27'
+output: html_document
+---
+
+Load data:
+```{r}
+GOclusters <- read.csv("~/GitHub/Worms/Schistocephalus/data/GOclusters.csv", header=TRUE, sep="")
+```
+
+I add a "function" and "host" column to compare the interesting stages:
+```{r}
+GOclusters <- GOclusters %>% 
+  group_by(condition) %>% 
+  mutate(Function = case_when(condition == "A" | condition == "D" | condition == "H" ~ "transmission",
+                              condition == "B" | condition == "E" | condition == "I" ~ "infection",
+                              condition == "C" | condition == "F" ~ "growing",
+                              condition == "G" ~ "growing-transmission",
+                              condition == "L"  ~ "reproduction")) %>% 
+                              ungroup() %>% 
+  group_by(condition) %>% 
+  mutate(Host = case_when(condition == "A" ~ "free larva",  condition == "B" | condition == "C" | condition == "D" ~ "copepod", condition == "E" | condition == "F" | condition == "G" | condition == "H" ~ "stickleback", condition == "I" | condition == "L" ~ "bird")) %>% 
+  ungroup()
+
+```
+
+Now I want to compare the stages with the same function (e.i. transmission), but how?
+Correlation? Taking all the NES and grouping them in clusters (6)?
+
+
+
+Look in general first. I plot the different function's NES by clusters to see if some clusters are particularly up or down regulated in specific stages:
+```{r}
+GOclusters %>% 
+  filter(cluster > 0 & cluster < 7) %>% 
+  filter(p.adjust < 0.01) %>% 
+  ggplot(aes(x = Function, y = NES, color = as.factor(cluster)))+
+  geom_boxplot()
+```
+
+Let's do the same for the hosts:
+```{r}
+GOclusters %>% 
+  filter(cluster > 0 & cluster < 7) %>% 
+  filter(p.adjust < 0.01) %>% 
+  ggplot(aes(x = Host, y = NES, color = as.factor(cluster)))+
+  geom_boxplot()
+```
+
+Now I plot the single conditions.
+Transmission:
+```{r}
+GOclusters %>% 
+filter(Function == "transmission" | Function == "growing-transmission") %>% 
+  filter(cluster > 0  & cluster < 7) %>% 
+  #filter(p.adjust < 0.01) %>% 
+ggplot(aes(x = condition, y = NES, color = as.factor(cluster)))+
+  geom_boxplot()
+```
+
+Infection:
+```{r}
+GOclusters %>% 
+filter(Function == "infection") %>% 
+  filter(cluster > 0  & cluster < 7) %>% 
+  filter(p.adjust < 0.01) %>% 
+ggplot(aes(x = condition, y = NES, color = as.factor(cluster)))+
+  geom_boxplot()
+```
+
+Growing:
+```{r}
+GOclusters %>% 
+filter(Function == "growing" | Function == "growing-transmission") %>% 
+  filter(cluster > 0  & cluster < 7) %>% 
+  #filter(p.adjust < 0.01) %>% 
+ggplot(aes(x = condition, y = NES, color = as.factor(cluster)))+
+  geom_boxplot()
+```
+Reproducing:
+```{r}
+GOclusters %>% 
+filter(Function == "reproduction") %>% 
+  filter(cluster > 0  & cluster < 7) %>% 
+  filter(p.adjust < 0.05) %>% 
+ggplot(aes(x = condition, y = NES, color = as.factor(cluster)))+
+  geom_boxplot()
+```
+Let's plot the clusters separately for all the conditions:
+```{r}
+GOclusters %>% 
+  filter(cluster > 0 & cluster < 7) %>%
+  filter(p.adjust < 0.05) %>% 
+  ggplot()+
+  geom_boxplot(aes(x = condition, y = NES))+
+facet_wrap(~ cluster)
+```
+Visualize better like in the DE_models script:
+```{r}
+x_ax_lab <- c("free", "cop-inf", "cop-grow", "cop-trans", "fish-inf", "fish-grow", "fish-grow2"
+, "fish-trans", "bird-inf", "bird-repr")
+
+GOclusters %>% 
+  filter(cluster > 0 & cluster < 7) %>% 
+  #filter(p.adjust < 0.05) %>% 
+ggplot(aes(x = condition, y = NES)) +
+  # background for copepod stage
+  annotate("rect",
+           xmin=1.5, xmax=4.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  # background for bird stages
+  annotate("rect",
+           xmin=8.5, xmax=10.5, ymin = -Inf, ymax = Inf,
+           fill = "gray") +
+  geom_point(aes(color = NES), alpha = 0.1) +  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  # geom_line(aes(group = gene), alpha = 0.1) +
+  geom_line(stat = "summary",
+            fun = "median", colour = "black", size = 1, 
+            aes(group = 1)) +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90)) +
+  scale_color_distiller(type = "div", palette = "RdBu") +
+    facet_wrap(~ cluster) +
+  theme(panel.grid.major = element_blank(),
+        axis.title.x = element_blank()
+        )+
+  ylim(-2, +2)
+```
+This gives more extreme patterns than the same graph for the gene expression.
+
+Now I can check for correlation pairwise. I assume that being these enriched GO terms (so up or down regulated) that means these functions are increased or suppressed. If in 2 stages the same GO term (function) is increased they are coupled. If there is no correlation (corr coefficient ~0 so flat line), the 2 stages are not correlated so not coupled. Assuming that only positive correlation is a prove of coupling, I treat the negative correlation (from 0 to -1) as non-coupled.
+
+To make a correlation plot I have to transform the dataset:
+```{r}
+GO_wide <- GOclusters %>% 
+  select(condition, ID, Description, cluster, NES) %>% 
+  pivot_wider(names_from = condition, values_from = NES) %>% 
+  filter(cluster > 0 & cluster < 7 )
+```
+
+And plot an example divided by cluster:
+```{r}
+GO_wide %>% 
+ggplot(aes(x = A, y = H, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)+
+  facet_wrap(~ cluster)
+```
+The free larval stage and the transmission in the fish. They are negatively correlated for all the clusters.
+
+Now I want to look at particular cases of correlation:
+```{r}
+GO_wide %>%
+ggplot(aes(x = A, y = B, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)
+```
+These are the first 2 stages, the free living and the infecting stage in the copepod. They are positivly correlated, confirming what seen in the gene expression patterns. One could argue that the are so similar because 1: they are consecutive stages (true, but there is not such a correlation in the other consecutive stages) and 2: the infecting stage was simulated in vitro, so maybe the gene expression didn't change much, cause the simulation wasn't really accurate (can't prove that, it worked to cause the transition we seeked for, and also the stage is comparable with other infecting stage, we see later).
+
+
+```{r}
+GO_wide %>%
+ggplot(aes(x = A, y = H, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)
+```
+Free living stage and transmission stage in the fish, both transmission stages, but negatively correlated (so in my assumption, non-coupled). They are taking place in different hosts so we expected different gene expressions, but also similar enriched functions (so this tren in gene experssion analysis was ok, here in the functional analysis I would expected something different) 
+
+```{r}
+GO_wide %>%
+ggplot(aes(x = C, y = B, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)
+```
+Infecting stage and growing in the copepod. Consecutive stages but not correlated (again could that be that the in vitro induction wasn't accurate?). But 2 different functions, so I expect them to not be similar in th enrichment of the GO terms.
+
+```{r}
+GO_wide %>%
+ggplot(aes(x = H, y = F, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)
+```
+Growing and transmission in fish. Same host so again expected more correlation, but there isn't, even in the same host.
+
+
+```{r}
+GO_wide %>%
+ggplot(aes(x = E, y = F, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)
+```
+infection and growing in fish. Only the first cluster (organisation) seems to positively correlate (0.27 corr coefficient), should I check for the p values in each cluster? The rest is slightly negative so non-coupled for me. infecting stage is in vitro, could that explain the negative correlation? But then we should'nt have the positive correlation in cluster 1.
+
+```{r}
+GO_wide %>%
+ggplot(aes(x = D, y = E, color = as.factor(cluster)))+
+  geom_point()+
+  geom_smooth(method ="lm", se=FALSE)
+```
+Transmission stage in the copepod and bird infecting stage induced in vitro Same as for A vs B stage.
+
+I could go on checking one by one the comparisons, it would be nice to make facet_wrap with all the pairwise comparison and keep in each graph all the clusters marked by the colors, but probably it would be just confusing, futhermore it seems that there are not big differences in the trends of the different clusters.
+
+
+Let's try to build a correlation matrix, as we want to visualize these pairwise correlations all together (for now excluding the division in clusters)
+```{r}
+#transform the dataset for correlation
+for_corr <- GO_wide %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+#correlation matrix
+corr_matrix <- cor(for_corr, use = "complete.obs") #I'm telling to ignore the NAs, otherwise the correlation comes out NA
+```
+
+```{r}
+#transform the matrix in a table
+library(reshape2)
+corr_table <- melt(corr_matrix, na.rm = TRUE)
+head(corr_table)
+```
+Let's plot with ggcorplot:
+```{r}
+#if(!require(devtools)) install.packages("devtools")
+#devtools::install_github("kassambara/ggcorrplot")
+library(ggcorrplot)
+
+ggcorrplot(corr_matrix, lab = TRUE, type = "lower", show.diag = TRUE)
+```
+
+```{r}
+ggcorrplot(corr_matrix, method = "circle", lab = TRUE, type = "lower", show.diag = TRUE)
+```
+I could do a correlation test, and get the same correlation coefficient and a pvalue and plot it to add the significance (like put it as the size of the dots in the gtraph above).
+```{r}
+#correlation pvalues from ggcorplot package:
+pvalues_corr <- cor_pmat(corr_matrix)
+pvalues_corr
+```
+
+```{r}
+ggcorrplot(corr_matrix, type = "lower", show.diag = TRUE, p.mat = pvalues_corr, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+```
+As seen, the most extreme values of coefficient are also the most significant, so we can exclude that information from the graph to not make it too confusing (maybe write it somewhere else in the legend).
+C and E (growing in copepod and infecting fish) are slightly positively correlated, and significant. They are not functionally similar stages, and neither are taking place in the same host, but the are correlated.
+
+But using ggplot I can control more things, trying following the other script I have to modify the data:
+```{r}
+#Add functional stage
+corr_table <- corr_table%>%
+  mutate(func_grp = case_when(
+    Var1 == Var2 ~ NA_character_,
+    Var1 %in% c("B", "E", "I") & Var2 %in% c("B", "E", "I") ~ "infecting",
+    Var1 %in% c("C", "F", "G") & Var2 %in% c("C", "F", "G") ~ "growing",
+    Var1 %in% c("A", "D", "H") & Var2 %in% c("A", "D", "H") ~ "trans",
+    Var1 %in% c("L") & Var2 %in% c("L") ~ "repr"
+    ))
+
+corr_table$Var1 <- as.character(corr_table$Var1)
+corr_table$Var2 <-   as.character(corr_table$Var2)
+
+```
+
+
+```{r}
+#Create function to get only a half of the matrix
+get_upper_tri<-function(corr_matrix){
+    corr_matrix[upper.tri(corr_matrix)] <- NA
+    return(corr_matrix)
+  }
+#Now apply it to our matrix
+upper.tri <- get_upper_tri(corr_matrix)
+upper.tri
+```
+
+```{r}
+#And transform it into data.frame with var1 and var2
+half_corr_table <- melt(upper.tri, na.rm = TRUE)
+
+#And plot it again
+corr_plot <- ggplot(half_corr_table %>% 
+           mutate(corr = round(value, 2)),
+       aes(x = Var2, y = fct_rev(Var1), fill = value)) +
+  geom_tile(color = "gray")+
+  geom_text(aes(label = corr))+
+  scale_fill_distiller(name = "Pearson",
+                       palette = "RdBu", direction = -1, na.value = "white") +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90),
+                   expand = c(0,0)) +
+  scale_y_discrete(labels = rev(x_ax_lab), 
+                   expand = c(0,0)) +
+  theme(axis.title = element_blank(),
+        panel.grid.major = element_blank())
+
+corr_plot
+##I could remove the diagonal and/or add something else on the top, like for the gene expression correlation
+```
+In this case I wanted to use only one color because the further the correlation coefficient goes from 1, and the more the 2 conditions are not positively correlated (not correlated or negative correlated which in our case means not coupled). I think the red and blue are misleading, we should use it only for up and down regulation.
+
+
+I can fill the upper triangle with the correlation scatterplots as in the diffferentially expressed genes analysis, so let's modify the dataset and create a function to use to plot all the pairwise cominations (scripts modified from https://github.com/LauraGramolini/Worms/blob/master/Schistocephalus/R/SS_DEmodels.Rmd):
+```{r}
+#Function to build the scatterplot
+make_mat_plot <- function(dx, x, y){
+  px <- ggplot(dx,
+         aes({{x}}, {{y}})) +
+    geom_point(size = 1, color = "gray") +
+    geom_hline(yintercept = 0, linetype = "dotted") +
+    geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(se = FALSE) +
+    coord_cartesian(xlim = c(-2,2), ylim = c(-2,2))+
+    theme(axis.title = element_blank(),
+         axis.text = element_blank(),
+        axis.ticks = element_blank(),
+       panel.grid = element_blank(),
+     plot.background = element_rect(color = NA),
+    plot.margin = margin(0,0,0,0))
+  return(px)
+}
+
+#Check it for one combination
+make_mat_plot(GO_wide, A, B)
+```
+
+
+
+```{r}
+ corr_plot + 
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, B)),
+    xmin = 1.51, xmax = 2.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, C)),
+    xmin = 2.51, xmax = 3.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, A, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, C)),
+    xmin = 2.51, xmax = 3.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, D, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, D, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, D, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, D, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, D, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, E, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, E, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, E, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, E, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, `F`, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, `F`, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, `F`, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, G, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, G, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, G, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, H, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 2.51, ymax = 3.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, H, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 2.51, ymax = 3.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, I, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 1.51, ymax = 2.49)+
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, `F`)),
+               xmin = 5.51, xmax = 6.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, C, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, `F`, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 4.51, ymax = 5.49) +
+  # infecting
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, B, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, E, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 5.51, ymax = 6.49) +
+  # transmission
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_wide, D, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 6.51, ymax = 7.49)
+```
+
+Let's see if at a cluster level there is some interesting correlation pattern. So I divide the datasets by cluster and calculate the correlation matrix for each.
+```{r}
+#transform the dataset for correlation
+for_corr_1 <- GO_wide %>% 
+  filter(cluster == 1) %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+for_corr_2 <- GO_wide %>% 
+  filter(cluster == 2) %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+for_corr_3 <- GO_wide %>% 
+  filter(cluster == 3) %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+for_corr_4 <- GO_wide %>% 
+  filter(cluster == 4) %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+for_corr_5 <- GO_wide %>% 
+  filter(cluster == 5) %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+for_corr_6 <- GO_wide %>% 
+  filter(cluster == 6) %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+
+#correlation matrix
+corr_matrix_1 <- cor(for_corr_1, use = "complete.obs")
+corr_matrix_2 <- cor(for_corr_2, use = "complete.obs") 
+corr_matrix_3 <- cor(for_corr_3, use = "complete.obs")
+corr_matrix_4 <- cor(for_corr_4, use = "complete.obs")
+corr_matrix_5 <- cor(for_corr_5, use = "complete.obs")
+corr_matrix_6 <- cor(for_corr_6, use = "complete.obs")
+
+pvalues_1 <- cor_pmat(corr_matrix_1)
+pvalues_2 <- cor_pmat(corr_matrix_2)
+pvalues_3 <- cor_pmat(corr_matrix_3)
+pvalues_4 <- cor_pmat(corr_matrix_4)
+pvalues_5 <- cor_pmat(corr_matrix_5)
+pvalues_6 <- cor_pmat(corr_matrix_6)
+
+```
+
+Plot with ggcorplot cause it's faster and easier for this step:
+```{r}
+plot_matrix_1 <- ggcorrplot(corr_matrix_1, type = "lower", show.diag = TRUE, p.mat = pvalues_1, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+plot_matrix_2 <- ggcorrplot(corr_matrix_2, type = "lower", show.diag = TRUE, p.mat = pvalues_2, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+plot_matrix_3 <-ggcorrplot(corr_matrix_3, type = "lower", show.diag = TRUE, p.mat = pvalues_3, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+plot_matrix_4 <- ggcorrplot(corr_matrix_4, type = "lower", show.diag = TRUE, p.mat = pvalues_4, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+plot_matrix_5 <- ggcorrplot(corr_matrix_5, type = "lower", show.diag = TRUE, p.mat = pvalues_5, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+plot_matrix_6 <- ggcorrplot(corr_matrix_5, type = "lower", show.diag = TRUE, p.mat = pvalues_6, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+
+library("ggpubr")
+ggarrange(plot_matrix_1, plot_matrix_2, plot_matrix_3, plot_matrix_4, plot_matrix_5, plot_matrix_6,
+          labels = c("1", "2", "3", "4", "5", "6"),
+          ncol = 3, nrow = 2)
+
+```
+
+cluster 6 seems to be the most interesting, but be careful! How many GO terms are relevant for this cluster?
+```{r}
+GOclusters %>% 
+  filter(cluster == 6) %>% 
+  filter(p.adjust < 0.05)
+```
+
+Only 7 GO terms for 3 conditions. Maybe I can remove this cluster and redo everything.
+```{r}
+GO_wide_5 <- GO_wide %>% 
+  filter(cluster > 0 & cluster < 6)
+for_corr_5clusters <- GO_wide_5 %>% 
+  select(A, B, C, D, E, 'F', G, H, I, L)
+corr_matrix_5clusters <- cor(for_corr_5, use = "complete.obs")
+upper.tri_5 <- get_upper_tri(corr_matrix_5clusters)
+half_corr_table_5<- melt(upper.tri_5, na.rm = TRUE)
+
+ggplot(half_corr_table_5 %>% 
+           mutate(corr = round(value, 2)),
+       aes(x = Var2, y = fct_rev(Var1), fill = value)) +
+  geom_tile(color = "gray")+
+  geom_text(aes(label = corr))+
+  scale_fill_distiller(name = "Pearson",
+                       palette = "RdBu", direction = -1, na.value = "white") +
+  scale_x_discrete(labels = x_ax_lab, 
+                   guide = guide_axis(angle = 90),
+                   expand = c(0,0)) +
+  scale_y_discrete(labels = rev(x_ax_lab), 
+                   expand = c(0,0)) +
+  theme(axis.title = element_blank(),
+        panel.grid.major = element_blank())
+```
+It's not very different but everything is slighlty higher (more positive). Let's check the pvalues of these coefficients
+```{r}
+pvalues_5clusters <- cor_pmat(corr_matrix_5clusters)
+ggcorrplot(corr_matrix_5clusters, type = "lower", show.diag = TRUE, p.mat = pvalues_5clusters, colors = c("#6D9EC1", "white", "#E46726"), ggtheme = ggplot2::theme_classic())
+```
+I can also leave the 6th cluster and use all the GO terms as done in the beginning, doesn't change much
+
+#Analyze GO terms and genes together
+
+First I create a new data frame with the genes in different columns
+```{r}
+#This is just a try because I feel I need more columns that these
+GO_genes <- GOclusters %>% 
+  select(condition, ID, core_enrichment, cluster, NES, Description)
+
+genes_split <- str_split(as.vector(GO_genes$core_enrichment), pattern =  "/", n = Inf)
+n.obs <- sapply(genes_split, length)
+seq.max <- seq_len(max(n.obs))
+genes_mat <- t(sapply(genes_split, "[", i = seq.max))
+genes_split <- as.data.frame(genes_mat)
+
+GO_genes <- cbind(GO_genes, genes_split)
+GO_genes <- GO_genes %>% 
+  select(!(core_enrichment))
+```
+The real dataset is made up of only 3464 GO terms (from the GSEA analysis, thesere are the ones significant). 
+
+
+Some statistic
+How many GO terms?
+```{r}
+summary(unique(GO_genes$ID))
+length(unique(GO_genes$ID))
+```
+
+Each condition has a different number of GO terms enriched. How many?
+```{r}
+```
+
+What's the % of GO terms in the first 5 clusters?
+```{r}
+
+```
+
+What are the % (for each condition) of enriched GO terms for each cluster?
+```{r}
+
+```
+
+
+Are the GO terms enriched, encoded by the same genes?
+Transform the data frame 
+```{r}
+GO_genes_long <- pivot_longer(GO_genes, cols = starts_with("V"), names_to = NULL, values_to = "gene") %>% 
+  distinct() %>% #This is to include the NES values even if they are repeated cause otherwise they are not included
+  pivot_wider(names_from = condition, names_prefix = "condition_", values_from = NES, values_fill = list(NES = 0)) #values_fill is to put 0 instead of NA, which one is better? I try 0 for now
+is.character(GO_genes_long$cluster)
+```
+
+Cluster NAs and over 6 to other_GOs 
+```{r}
+GO_genes_long$cluster[is.na(GO_genes_long$cluster) | GO_genes_long["cluster"] > 6] <- "other_GOs"
+#Here I have to do it together with the \ otherwise i'm the vector becomes mixed character/numeric and I can't do the second replacement
+```
+
+
+```{r}
+GO_genes_long%>%
+  filter(cluster > 0 & cluster <= 6) %>% 
+ggplot(aes(x = condition_A, y = condition_B)) +
+  geom_point(aes(color = as.factor(cluster)), size = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  geom_smooth(se = F) +
+  coord_cartesian(xlim = c(-2,2), ylim = c(-2,2) ) +
+# scale_color_manual(values = c("grey", RColorBrewer::brewer.pal(1, "Set1"))) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+```
+Anyway this is not relevant cause I'm using NES which is the same for all the genes in a GO term, so I'm actually visualizing the GO terms now.
+
+Introduce logfoldchange in the dataset
+```{r}
+GO_genes_long_lfc <- pivot_longer(GO_genes, cols = starts_with("V"), names_to = NULL, values_to = "gene")
+```
+Import DEGs toget the lfc from each gene in each condition:
+```{r}
+DEGs <- read.csv("../data/DEGs_by_devo_stage.csv", header=TRUE, sep=",")
+DEGs$gene <- str_replace(DEGs$gene, "gene:", "")
+DEGs
+```
+
+```{r}
+genes_lfc <- GO_genes_long_lfc %>% 
+  inner_join(DEGs, by = c("gene", "condition")) %>% 
+  select(gene, condition, lfc)
+
+genes_lfc <- genes_lfc %>% 
+  unique() %>% 
+  pivot_wider(names_from = condition, values_from = lfc)
+
+genes_lfc[is.na(genes_lfc)] <- 0 
+```
+
+Now I have to put the GO terms column next to the genes
+```{r}
+GO_lfc_wide <- inner_join(genes_lfc, GO_genes_long_lfc, by = c("gene")) %>% 
+  select(!condition) %>% 
+  select(!NES)
+
+GO_lfc_wide$cluster[is.na(GO_lfc_wide$cluster) | GO_lfc_wide["cluster"] > 6] <- "other_GOs"
+```
+
+
+Plot A vs B
+```{r}
+GO_lfc_wide %>% 
+ # filter(A != 0 & H != 0) %>% 
+ filter(cluster > 0 & cluster < 7) %>% 
+  ggplot(aes(x = C, y = F, color = as.factor(cluster))) +
+  geom_point(size = 0.1) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  geom_smooth(se = F) +
+  coord_cartesian(xlim = c(-5,5), ylim = c(-5,5) ) +
+ #scale_color_manual(values = c("grey", RColorBrewer::brewer.pal(1, "Set1"))) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+
+
+```
+
+###################################Make this plot for all the pairwise comparison to see them all
+
+```{r}
+corr_plot + 
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, B)),
+    xmin = 1.51, xmax = 2.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, C)),
+    xmin = 2.51, xmax = 3.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, A, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 9.51, ymax = 10.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, C)),
+    xmin = 2.51, xmax = 3.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, D)),
+    xmin = 3.51, xmax = 4.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, D, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, D, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, D, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, D, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, D, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 6.51, ymax = 7.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, E, `F`)),
+    xmin = 5.51, xmax = 6.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, E, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, E, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, E, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 5.51, ymax = 6.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, `F`, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, `F`, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, `F`, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 4.51, ymax = 5.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, G, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, G, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, G, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 3.51, ymax = 4.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, H, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 2.51, ymax = 3.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, H, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 2.51, ymax = 3.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, I, L)),
+    xmin = 9.51, xmax = 10.49, ymin = 1.51, ymax = 2.49)+
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, `F`)),
+               xmin = 5.51, xmax = 6.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, C, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 7.51, ymax = 8.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, `F`, G)),
+    xmin = 6.51, xmax = 7.49, ymin = 4.51, ymax = 5.49) +
+  # infecting
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, E)),
+    xmin = 4.51, xmax = 5.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, B, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 8.51, ymax = 9.49) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, E, I)),
+    xmin = 8.51, xmax = 9.49, ymin = 5.51, ymax = 6.49) +
+  # transmission
+  annotation_custom(
+    ggplotGrob(make_mat_plot(GO_lfc_wide, D, H)),
+    xmin = 7.51, xmax = 8.49, ymin = 6.51, ymax = 7.49)
+
+```
+This is the correlation matrix with the correlation coefficients by NES and the plots with the gene expression (lfc). It's an hybrid, useless, you can use the NES graph and the lfc from the models script.
+
+
+Select GO terms that are high-high, low-low, high-low and low-high in a pairwise comparison.
+```{r}
+GO_genes_long
+```
+
+I can produce a vector of GO terms that are high-high, low-low, low-high and high-low NES in 2 conditions (A vs B, but make also some more).
+So then I can use the GO_lfc_wide to plot the lfc of A and B using all the genes, selecting only those GO terms, and seeing how they behave.
+
+
+High NES in A and B
+```{r}
+GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_B == max(GO_genes_long$condition_B)])), ]
+```
+
+Low NES in A and B
+```{r}
+GO_genes_long[which(GO_genes_long$condition_B == min(GO_genes_long$condition_B[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]
+```
+
+High NES in B and low in A
+```{r}
+GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_B == min(GO_genes_long$condition_B)])), ]
+
+```
+
+High NES in A and low in B
+```{r}
+GO_genes_long[which(GO_genes_long$condition_B == max(GO_genes_long$condition_B[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]
+
+```
+
+I should put these GO terms as a vector and then filter by this vector the dataframe to use for the plot
+```{r}
+#Create list of IDs
+
+AvsB_GOs <- list(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_B == max(GO_genes_long$condition_B)])), ]$ID),
+unique(GO_genes_long[which(GO_genes_long$condition_B == min(GO_genes_long$condition_B[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID),
+head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_B == min(GO_genes_long$condition_B)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_B == max(GO_genes_long$condition_B[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2))
+
+```
+
+
+```{r}
+AvsB_GOs <- unnest(data.frame(col = AvsB_GOs)) %>% 
+  pivot_longer(cols = c(1:4), names_to = "ID" )
+AvsB_GOs <- unlist(unique(AvsB_GOs$value, use.names = FALSE))
+```
+
+Plot filtering for these GO terms:
+```{r}
+colors5 <- c("red", "blue", "green", "orange", "purple")
+
+GO_lfc_wide %>% 
+  ggplot(aes(x = A, y = B, color = as.factor(ID))) +
+   geom_point(data = . %>%  filter(!ID %in% AvsB_GOs), aes(color = "grey"), size = 0.5) +
+  geom_point(data = . %>%  filter(ID %in% AvsB_GOs), size = 0.5) +
+  scale_color_manual(values = setNames(colors5, AvsB_GOs)) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  coord_cartesian(xlim = c(-5,5), ylim = c(-5,5) ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+
+```
+Larval stage VS Infecting copepods
+
+Red: high NES in both condition
+Blue: low NES in both condition
+Red & Yellow: high in B and low in A
+Green & Purple: High in A and low in B
+
+
+
+```{r}
+AvsH_GOs <- list(head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_H == max(GO_genes_long$condition_H)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_H == min(GO_genes_long$condition_H[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_H == min(GO_genes_long$condition_H)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_H == max(GO_genes_long$condition_H[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2))
+```
+
+```{r}
+AvsH_GOs <- unnest(data.frame(col = AvsH_GOs)) %>% 
+  pivot_longer(cols = c(1:4), names_to = "ID" )
+AvsH_GOs <- unlist(unique(AvsH_GOs$value, use.names = FALSE))
+```
+```{r}
+colors6 <- c("red", "blue", "green", "orange", "purple", "yellow")
+
+GO_lfc_wide %>% 
+  ggplot(aes(x = A, y = H, color = as.factor(ID))) +
+   geom_point(data = . %>%  filter(!ID %in% AvsH_GOs), aes(color = "grey"), size = 0.5) +
+  geom_point(data = . %>%  filter(ID %in% AvsH_GOs), size = 0.5) +
+  scale_color_manual(values = setNames(colors6, AvsH_GOs)) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  coord_cartesian(xlim = c(-5,5), ylim = c(-5,5) ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+```
+Larval stage VS transmission in the fish
+
+Red & Purple: High NES in A and H
+Blue & Yellow: Low NES in A and H
+Green: Low NES in A and high in H
+Orange: Low NES in H and high in A
+
+
+```{r}
+AvsD_GOs <- list(head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_D == max(GO_genes_long$condition_D)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_D == min(GO_genes_long$condition_D[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_D == min(GO_genes_long$condition_D)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_D == max(GO_genes_long$condition_D[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2))
+```
+
+```{r}
+AvsD_GOs <- unnest(data.frame(col = AvsD_GOs)) %>% 
+  pivot_longer(cols = c(1:4), names_to = "ID" )
+AvsD_GOs <- unlist(unique(AvsD_GOs$value, use.names = FALSE))
+```
+
+```{r}
+colors6 <- c("red", "blue", "green", "orange", "purple", "yellow")
+
+GO_lfc_wide %>% 
+  ggplot(aes(x = A, y = D, color = as.factor(ID))) +
+   geom_point(data = . %>%  filter(!ID %in% AvsD_GOs), aes(color = "grey"), size = 0.5) +
+  geom_point(data = . %>%  filter(ID %in% AvsD_GOs), size = 0.5) +
+  scale_color_manual(values = setNames(colors6, AvsD_GOs)) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  coord_cartesian(xlim = c(-5,5), ylim = c(-5,5) ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+```
+Larval stage VS transmission in copepod
+
+Red & Purple: High NES in A and D
+Blue & Yellow: Low NES in A and D
+Green: High in D and low in A
+Orange: High NES in A and low in D
+
+A low NES for a GO term suggests that the set of genes associated with that term is not coordinately upregulated or downregulated relative to the other genes in the dataset. It does not necessarily mean that the function associated with the GO term is not expressed, as some genes in the set may be upregulated while others are downregulated, resulting in a low NES. It is also possible that the set of genes associated with the GO term is expressed, but the gene expression changes are not strong enough to result in a significant NES.
+
+```{r}
+AvsL_GOs <- list(head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_L == max(GO_genes_long$condition_L)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_L == min(GO_genes_long$condition_L[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_A == max(GO_genes_long$condition_A[GO_genes_long$condition_L == min(GO_genes_long$condition_L)])), ]$ID), 2),
+head(unique(GO_genes_long[which(GO_genes_long$condition_L == max(GO_genes_long$condition_L[GO_genes_long$condition_A == min(GO_genes_long$condition_A)])), ]$ID), 2))
+```
+
+```{r}
+AvsL_GOs <- unnest(data.frame(col = AvsL_GOs)) %>% 
+  pivot_longer(cols = c(1:4), names_to = "ID" )
+AvsL_GOs <- unlist(unique(AvsL_GOs$value, use.names = FALSE))
+```
+
+```{r}
+colors6 <- c("red", "blue", "green", "orange", "purple", "yellow")
+
+GO_lfc_wide %>% 
+  ggplot(aes(x = A, y = L, color = as.factor(ID))) +
+   geom_point(data = . %>%  filter(!ID %in% AvsL_GOs), aes(color = "grey"), size = 0.5) +
+  geom_point(data = . %>%  filter(ID %in% AvsL_GOs), size = 0.5) +
+  scale_color_manual(values = setNames(colors6, AvsL_GOs)) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  coord_cartesian(xlim = c(-5,5), ylim = c(-5,5) ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank())
+```
+Larval stage VS Riproducing in birds
+
+Red & Purple: Hihg NES in A and L
+Blue & Yellow: Low NES in A and L
+Green: Low in A and high NES in L
+Orange: High NES in A and low in L
+
+
+
+
+#Jaccard index calculation
+
+First I have to create a dataset with all the comparisons for each GO term? How?
+```{r}
+GOclusters
+j_df <- GOclusters %>% 
+  select(condition, ID, core_enrichment)
+
+j_df$core_enrichment <- str_replace_all(j_df$core_enrichment, "/", " ")
+  
+j_df <- j_df %>% 
+pivot_wider(names_from = condition, values_from = core_enrichment, names_prefix = "genes")
+```
+
+I wanted to build my function to calculate jaccard, but intersect is very dumb
+```{r}
+library("fts")
+#Define Jaccard function
+jaccard <- function(a, b) {
+    intersection = sum(lengths(intersect(strsplit(a, " "),  strsplit(b, " ")))) #If I use it row by row it's fine to use intersect, cause i will not have the problem of th e duplicate valuee
+    union = sum(lengths(strsplit(a, " ")) + sum(lengths(strsplit(b, " ")))) - intersection
+    return (intersection/union)
+}
+```
+
+
+Getting this to work
+```{r}
+sum(lengths(intersect(strsplit(j_df$genesA, " "), strsplit(j_df$genesA, " ")))) #6136 doesn't count identical rows
+sum(is.na(j_df$genesA)) #0 there are no NAs
+sum(duplicated(j_df$genesA)) #which are 1207 
+
+#Another function for intersect all the rows. intersect.all
+length(intersect.all(j_df$genesA, j_df$genesA)) #14686 CORRECT!
+sum(lengths(strsplit(j_df$genesA, " ")))
+sum(lengths(j_df$genesA))# 152229
+sum(lengths(intersect.all(strsplit(j_df$genesA, " "), strsplit(j_df$genesA, " ")))) #304458
+sum(lengths(strsplit(j_df$genesA, " ")))
+
+#j_df <- 
+jaccard(strsplit(j_df$genesA, " "), strsplit(j_df$genesA, " "))
+
+```
+
+
+finally works!!!
+```{r}
+for (i in 2:(ncol(j_df)-1)) {
+  for (j in (i+1):ncol(j_df)) {
+    jaccard_col <- sapply(1:nrow(j_df), function(k) {
+      x <- unlist(strsplit(as.character(j_df[k, i]), " "))
+      y <- unlist(strsplit(as.character(j_df[k, j]), " "))
+      length(intersect(x, y)) / length(union(x, y))
+    })
+    colname <- paste("Jaccard", i, "vs", j, sep="_")
+    j_df[, colname] <- jaccard_col
+  }
+}
+
+```
+
+But while producing columns it was also using them for the next iteration.
+Now it is done and I can select and rename the columns I'm interested in
+```{r}
+jaccard_df <- j_df %>% 
+  select(c(1:28, 38:44, 71:76, 136:140, 265:268, 522:524, 1000:4108)) %>% 
+  select(c(1:53, 89:90, 1000:3162)) %>% 
+  select(c(1:55, 170))
+```
+
+Replace numbers with the letters in jaccard columns
+```{r}
+colnames(jaccard_df) <- str_replace_all(colnames(jaccard_df), c("2"="A", "3"="B", "4"="C", "5"="D", "6"="E", "7"="F", "8"="G", "9"="H", "10"="I", "11"="L"))
+```
