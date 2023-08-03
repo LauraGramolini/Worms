@@ -622,7 +622,7 @@ CLDE_spear_long <- left_join(CLDE_spear, CLDE_spear_pval)
 
 ```{r}
 CLDE_pairwise_mat_long_spear <- CLDE_pairwise_mat_long%>%
-  left_join(., DE_spear_long)
+  left_join(., CLDE_spear_long)
 ```
 
 ```{r}
@@ -705,7 +705,7 @@ make_mat_plot <- function(dx, x, y){
 }
 ```
 ```{r}
-CLpal_grps <- RColorBrewer::brewer.pal(3, "Dark2")
+pal_grps <- RColorBrewer::brewer.pal(3, "Dark2")
 ```
 
 
@@ -713,34 +713,34 @@ CLpal_grps <- RColorBrewer::brewer.pal(3, "Dark2")
 ```{r matrix_plot_spearman2}
 CLcorr_mat_ge + 
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, D)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, A, D)),
     xmin = 1.5, xmax = 2.5, ymin = 4.5, ymax = 5.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, E)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, A, E)),
     xmin = 2.5, xmax = 3.5, ymin = 4.5, ymax = 5.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, `F`)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, A, `F`)),
     xmin = 3.5, xmax = 4.5, ymin = 4.5, ymax = 5.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, G)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, A, G)),
     xmin = 4.5, xmax = 5.5, ymin = 4.5, ymax = 5.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, E)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, D, E)),
     xmin = 2.5, xmax = 3.5, ymin = 3.5, ymax = 4.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, `F`)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, D, `F`)),
     xmin = 3.5, xmax = 4.5, ymin = 3.5, ymax = 4.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, G)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, D, G)),
     xmin = 4.5, xmax = 5.5, ymin = 3.5, ymax = 4.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, `F`)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, E, `F`)),
     xmin = 3.5, xmax = 4.5, ymin = 2.5, ymax = 3.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, G)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, E, G)),
     xmin = 4.5, xmax = 5.5, ymin = 2.5, ymax = 3.5) +
   annotation_custom(
-    ggplotGrob(make_mat_plot(DE_each_group_wide2, `F`, G)),
+    ggplotGrob(make_mat_plot(CLDE_each_group_wide2, `F`, G)),
     xmin = 4.5, xmax = 5.5, ymin = 1.5, ymax = 2.5)
 
 ```
