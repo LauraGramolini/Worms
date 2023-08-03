@@ -1,0 +1,80 @@
+---
+title: "CamaFeaturecounts"
+author: "Laura Gramolini"
+date: '2023-06-13'
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Rsubread)
+library(tidyverse)
+```
+
+We create the list of the bam files and run FeatureCounts with the multimapping option because in this case I'm mapping against a transcriptome so I have high percentage of multimapping:
+This chunk need to be run all together cause the change in the working directory is temporary (chnage working directory anyway!!! REMEMBER!!!)
+```{r}
+setwd("/SAN/Lauras_territory/Novaseq/cama/allbams_new/")
+cama_files <- list.files(".", pattern = "[.]bam")
+CamaFCounts <- featureCounts(files =cama_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/Novaseq/cama/fish_genomes/star_out_loop/supertranscriptome_cama/SuperDuper.gff", countMultiMappingReads=TRUE, fraction=TRUE, nthreads = 40)
+```
+
+Then round (up or down) the counts:
+```{r}
+CamaFCounts$counts[] <- round(CamaFCounts$counts)
+CamaFCounts$counts
+CLcountdf <- as.data.frame(CamaFCounts$counts) ###Export the matrix
+write.table(CLcountdf, file = "~/GitHub/Worms/Camallanus/data/CLcountdf_new.csv")
+```
+
+Now we have the count matrix written in a csv format
+
+I try not allowing multimapping anymore
+```{r}
+setwd("/SAN/Lauras_territory/Novaseq/cama/allbams_new/")
+cama_files <- list.files(".", pattern = "[.]bam")
+CamaFCounts_singlemap <- featureCounts(files =cama_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/Novaseq/cama/fish_genomes/star_out_loop/supertranscriptome_cama/SuperDuper.gff", nthreads = 70)
+```
+I stopped it, that is not the problem.
+
+I produce a count matrix with only the pure samples
+```{r}
+setwd("/SAN/Lauras_territory/Novaseq/cama/allbams_new/")
+cama_files <- list.files(".", pattern = "[.]bam")
+CamaFCounts_singlemap <- featureCounts(files =cama_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/Novaseq/cama/fish_genomes/star_out_loop/supertranscriptome_cama/SuperDuper.gff", nthreads = 70)
+```
+
+```{r}
+CamaFCounts_singlemap$counts
+CLcountdf <- as.data.frame(CamaFCounts_singlemap$counts) ###Export the matrix
+write.table(CLcountdf, file = "~/GitHub/Worms/Camallanus/data/CLcountdf_single.csv")
+```
+
+##I try with multimapping now
+
+```{r}
+setwd("/SAN/Lauras_territory/Novaseq/cama/allbams_new/")
+cama_files <- list.files(".", pattern = "[.]bam")
+CamaFCounts_puremulti <- featureCounts(files =cama_files, isPairedEnd=TRUE, isGTFAnnotationFile=TRUE, annot.ext="/SAN/Lauras_territory/Novaseq/cama/fish_genomes/star_out_loop/supertranscriptome_cama/SuperDuper.gff", countMultiMappingReads=TRUE, fraction=TRUE, nthreads = 40)
+```
+
+```{r}
+CamaFCounts_puremulti$counts[] <- round(CamaFCounts_puremulti$counts)
+CamaFCounts_puremulti$counts
+CLcountdf_pumu <- as.data.frame(CamaFCounts_puremulti$counts) ###Export the matrix
+write.table(CLcountdf_pumu, file = "~/GitHub/Worms/Camallanus/data/CLcountdf_pumu.csv")
+```
+
+
+
+
+
+
+
+
+
+

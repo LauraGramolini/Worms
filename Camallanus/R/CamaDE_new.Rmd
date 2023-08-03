@@ -1,0 +1,1175 @@
+---
+title: "CamaDE_new"
+author: "Laura Gramolini"
+date: '2023-06-21'
+output: html_document
+---
+
+```{r}
+library(Rsubread)
+library(tidyverse)
+library(dplyr)
+library(DESeq2)
+```
+
+
+###################################################### DEseq pipeline #########################################################
+
+Load multimapping
+```{r}
+CLcountdf_pumu <- read.csv("~/GitHub/Worms/Camallanus/data/CLcountdf_pumu.csv", header = TRUE, sep = "")
+```
+
+
+Load new coldata
+```{r}
+CLcolData <- read.csv("~/GitHub/Worms/Camallanus/data/Colcama.txt", header = TRUE, sep = "")
+```
+
+
+
+```{r}
+low_genes10 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+round(length(low_genes10)/length(gc$gene), 3)
+```
+
+
+
+```{r}
+#rm(gc, gc_avg_by_condition, gc_long, gc_max_exp_in_at_least_cond)
+CLcountdf_pumu <- CLcountdf_pumu[!row.names(CLcountdf_pumu) %in% low_genes10,] # just expressed genes
+```
+
+
+Loading the tables in DEseq2
+Should I put here the design already? Should we run it with Stage + Host or Condition and then look how it is made of? Should we also add Stage:Host? And the other variables? Like pop, dual-seq, double infection?
+
+
+
+# Models for differential gene expression
+
+
+M1 would be the dataset loaded in DEseq with the Host as design
+
+```{r}
+CLM1 <- DESeqDataSetFromMatrix(
+  countData = CLcountdf_pumu,
+  colData = CLcolData,
+  design= ~ Host)
+```
+
+The we use DEseq with the likelihood ratio test to compare the Host model with the intercept
+
+```{r}
+CLHostM1 <- DESeq(CLM1, test="LRT", reduced = ~1)
+```
+
+Calculate the results
+```{r}
+CLresultsM1 <- results(CLHostM1)
+```
+
+Load the data with Stage as design: M2
+```{r}
+CLM2 <- DESeqDataSetFromMatrix(
+  countData = CLcountdf_pumu,
+  colData = CLcolData,
+  design= ~ Stage)
+```
+
+Test Stage against intercept
+```{r}
+CLStageM2 <- DESeq(CLM2, test="LRT", reduced = ~1)
+```
+
+Calculate the results 
+```{r}
+CLresultsM2 <- results(CLStageM2)
+```
+
+
+Load the data with Host and Stage interaction (Condition) against the intercept: M3
+```{r}
+CLM3 <- DESeqDataSetFromMatrix(
+  countData = CLcountdf_pumu,
+  colData = CLcolData,
+  design= ~ Condition)
+```
+
+Now Test the M3 model (Host * Stage) against the intercept
+```{r}
+CLConditionM3 <- DESeq(CLM3, test="LRT", reduced = ~ 1)
+CLresultsM3 <- results(CLConditionM3)
+```
+
+Number of diff expressed genes per model
+```{r}
+CLdfM1 <- as.data.frame(CLresultsM1)
+CLdfM1 %>% 
+filter(padj < 0.001) %>% 
+  nrow()
+
+```
+
+```{r}
+CLdfM2 <- as.data.frame(CLresultsM2)
+CLdfM2 %>% 
+filter(padj < 0.001) %>% 
+  nrow()
+
+```
+
+
+```{r}
+CLdfM3 <- as.data.frame(CLresultsM3)
+CLdfM3 %>% 
+filter(padj < 0.001) %>% 
+  nrow()
+```
+
+
+
+Load the data with Design condition using a matrix to then test against the Host and Stage
+```{r}
+CLcondmatrix <- model.matrix(~Condition, CLcolData)
+CLM4 <- DESeqDataSetFromMatrix(
+  countData = CamaFCounts_puremulti$counts,
+  colData = CLcolData,
+  design= CLcondmatrix)
+```
+
+
+Since we used a matrix for full model we have to use the matrix for Host
+```{r}
+CLhostmatrix <- model.matrix(~Host, CLcolData)
+```
+
+Now we test the the condition and the Host
+```{r}
+CLConditionM4 <- DESeq(CLM4, test = "LRT", reduced = CLhostmatrix)
+```
+
+```{r}
+CLresultsM4 <- results(CLConditionM4)
+```
+
+Now with the same data loaded in M4 (condmatrix) we test against the stage, so we need a stage matrix
+```{r}
+CLStagematrix <- model.matrix(~Stage, CLcolData)
+```
+
+And then we test
+```{r}
+CLConditionM5 <- DESeq(CLM4, test = "LRT", reduced = CLStagematrix)
+CLresultsM5 <- results(CLConditionM5)
+```
+
+
+
+Now I have to create a data frame to plot and compare the models. So I have to take the adjpvalues. I'll make 1 column with the genes, one column with the models and one column with the adjusted p values.
+
+```{r}
+CLint_host <- as.data.frame(CLresultsM1)
+CLint_stage <- as.data.frame(CLresultsM2)
+CLhost_condition <- as.data.frame(CLresultsM4)
+CLstage_condition <- as.data.frame(CLresultsM5)
+CLint_condition <- as.data.frame(CLresultsM3)
+
+CLint_host$Gene <- row.names(CLint_host)
+CLint_stage$Gene <- row.names(CLint_stage)
+CLhost_condition$Gene <- row.names(CLhost_condition)
+CLstage_condition$Gene <- row.names(CLstage_condition)
+CLint_condition$Gene <- row.names(CLint_condition)
+
+CLDEGsmodels <- dplyr::lst(CLint_host, CLint_stage, CLhost_condition, CLstage_condition, CLint_condition) %>% 
+  set_names(c("int_host", "int_stage", "host_condition", "stage_condition", "int_condition")) %>% 
+  bind_rows(.id = "Model") %>% 
+  select(Gene, Model, padj)
+row.names(CLDEGsmodels) <- NULL
+#Don't run it's already saved
+#write.table(CLDEGsmodels, file="/localstorage/laura/GitHub/Worms/Camallanus/data/cama_DEGsmodels.csv")
+```
+
+By plotting the distribution of adjusted p-values, we can get a feel for which models were the best. P-values were lowest in the condition model (with all devo stages) and highest in the functional stage model.
+
+```{r}
+ggplot(CLDEGsmodels, aes(x=padj+0.0001, color = Model)) + 
+         geom_density() +
+  scale_x_log10()
+```
+
+```{r}
+# filter(DEGsmodels) %>%
+# ggplot(aes(x=padj+0.00000001, color = Model, fill = Model)) + 
+#          geom_histogram()+
+#   scale_x_log10()
+```
+
+
+
+```{r}
+plotMA(CLresultsM1, ylim=c(-2,2))
+```
+
+```{r}
+plotMA(CLresultsM3, ylim=c(-2,2))
+```
+
+```{r}
+# as.data.frame(resultsM3) %>% 
+# ggplot(aes(x=log2FoldChange, y=-log10(pvalue))) + 
+#          geom_point()
+```
+
+```{r}
+# as.data.frame(resultsM1) %>% 
+# ggplot() +
+#   geom_smooth(aes(x=pvalue, y=log2FoldChange))
+```
+
+
+
+```{r}
+CLuse <- CLresultsM1$baseMean > metadata(CLresultsM1)$filterThreshold
+CLh1 <- hist(CLresultsM1$pvalue[!use], breaks=0:50/50, plot=FALSE)
+CLh2 <- hist(CLresultsM2$pvalue[use], breaks=0:50/50, plot=FALSE)
+CLcolori <- c(`do not pass`="khaki", `pass`="powderblue")
+```
+
+```{r}
+barplot(height = rbind(CLh1$counts, CLh2$counts), beside = FALSE,
+        col = colori, space = 0, main = "", ylab="frequency")
+text(x = c(0, length(h1$counts)), y = 0, label = paste(c(0,1)),
+     adj = c(0.5,1.7), xpd=NA)
+legend("topright", fill=rev(CLcolori), legend=rev(names(CLcolori)))
+```
+
+
+
+# Extracting differentially expressed genes at each life stage
+
+```{r}
+CLConditionM3_noLRT <- DESeq(CLM3) # refit the DESeq model, but leave out the LRT
+```
+
+For every developmental stage we sampled, the group mean was calculated and compared to the overall mean of all the other samples combined.
+
+```{r}
+# model matrix
+CLmod_mat <- model.matrix(design(CLConditionM3_noLRT), colData(CLConditionM3_noLRT))
+
+# to extract means for each group
+CLcondA <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition == "ConditionA", ])
+CLcondD <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition == "ConditionD", ])
+CLcondE <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition == "ConditionE", ])
+CLcondF <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition == "ConditionF", ])
+CLcondG <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition == "ConditionG", ])
+
+# to extract means for all groups besides the focal group
+CLall_butA <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition != "ConditionA", ])
+CLall_butD <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition != "ConditionD", ])
+CLall_butE <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition != "ConditionE", ])
+CLall_butF <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition != "ConditionF", ])
+CLall_butG <- colMeans(CLmod_mat[CLConditionM3_noLRT$Condition != "ConditionG", ])
+```
+
+
+```{r}
+# two ways to get same results
+# a_vs_b <- results(ConditionM3_noLRT, 
+#                   contrast = list("Condition_ConditionB_vs_ConditionA")) # from constrasts
+# a_vs_b2 <- results(ConditionM3_noLRT, contrast = condB - condA) # from matrix
+# qplot(a_vs_b$log2FoldChange, a_vs_b2$log2FoldChange) + geom_abline()
+```
+
+
+```{r}
+# calculate contrasts for each focal group vs all other groups
+CLDEGs_condA <- results(CLConditionM3_noLRT, contrast = CLcondA - CLall_butA)
+CLDEGs_condD <- results(CLConditionM3_noLRT, contrast = CLcondD - CLall_butD)
+CLDEGs_condE <- results(CLConditionM3_noLRT, contrast = CLcondE - CLall_butE)
+CLDEGs_condF <- results(CLConditionM3_noLRT, contrast = CLcondF - CLall_butF)
+CLDEGs_condG <- results(CLConditionM3_noLRT, contrast = CLcondG - CLall_butG)
+```
+
+
+
+```{r}
+make_df_for_each_focal_comp <- function(DEG_output, condition_name, p_thresh_fdr){
+  p_thresh <- p_thresh_fdr # padj used, so this is False Discovery Rate
+  dx <- DEG_output%>%
+    data.frame()%>%
+    mutate(gene = row.names(.),
+           diff_exp = case_when(is.na(padj) ~ NA_character_,
+                                padj > p_thresh ~ "no",
+                                log2FoldChange > 0 ~ "up",
+                                log2FoldChange < 0 ~ "down"),
+           condition = condition_name,
+           contrast = "all")%>%
+    select(gene, condition, contrast, base_mean = baseMean,
+           lfc = log2FoldChange, padj, diff_exp)
+  
+  row.names(dx) <- NULL
+  return(dx)
+}
+```
+
+```{r}
+CLDE_each_group <- bind_rows(
+  make_df_for_each_focal_comp(CLDEGs_condA, "A", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condD, "D", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condE, "E", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condF, "F", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condG, "G", 0.001)
+)
+```
+
+
+
+```{r}
+CLDE_numbers_by_grp <- CLDE_each_group%>%
+  group_by(condition)%>%
+  summarise(upreg = sum(diff_exp == "up", na.rm = T),
+            downreg = sum(diff_exp == "down", na.rm = T),
+            noDE = sum(diff_exp == "no", na.rm = T),
+            total_tested = sum(!is.na(padj)))
+CLDE_numbers_by_grp
+```
+
+
+```{r}
+ggplot(CLDE_numbers_by_grp, aes(downreg, upreg)) +
+  geom_abline() +
+  geom_label(aes(label = condition))
+```
+
+
+
+```{r}
+library("scales")
+reverselog_trans <- function(base = exp(1)) {
+    trans <- function(x) -log(x, base)
+    inv <- function(x) base^(-x)
+    trans_new(paste0("reverselog-", format(base)), trans, inv, 
+              log_breaks(base = base), 
+              domain = c(1e-100, Inf))
+}
+```
+
+```{r volcano}
+# volcano plot
+CLvolcano <- ggplot(CLDE_each_group%>%
+         filter(!is.na(padj))%>%
+         mutate(padj = if_else(padj < 1e-60, 1e-60, padj)), 
+       aes(x = lfc, y = padj, color = padj)) + 
+  geom_point(alpha = 0.1) +
+  scale_y_continuous(trans = reverselog_trans(10)) +
+  scale_x_continuous(limits = c(-10,10)) +
+  facet_wrap(~condition, nrow = 2) +
+  scale_color_viridis_c(alpha = 1, option = "D", labels = scales::label_number(scale = 2)) +
+ # guides(color = guide_legend(override.aes = list(alpha = 1))) +
+  theme(panel.grid.minor = element_blank())
+```
+
+```{r}
+#dON'T RUN, ALREADY SAVED
+#ggsave(CLvolcano, 
+#    filename = "~/GitHub/Worms/Camallanus/data/CLvolcano.png", dpi = 500)
+```
+
+
+
+# Unadjusted and adjusted contrasts
+
+
+```{r}
+table(CLcolData$Condition)
+```
+
+
+```{r}
+# function to make all groups have equal weight
+unweight_contrasts <- function(x){
+  x[between(x, 0.00000001, 0.99999999)] <- 1/9
+  return(x)
+}
+
+# calculate contrasts for each focal group vs all other groups
+CLDEGs_condA2 <- results(CLConditionM3_noLRT, contrast = CLcondA - unweight_contrasts(CLall_butA))
+CLDEGs_condD2 <- results(CLConditionM3_noLRT, contrast = CLcondD - unweight_contrasts(CLall_butD))
+CLDEGs_condE2 <- results(CLConditionM3_noLRT, contrast = CLcondE - unweight_contrasts(CLall_butE))
+CLDEGs_condF2 <- results(CLConditionM3_noLRT, contrast = CLcondF - unweight_contrasts(CLall_butF))
+CLDEGs_condG2 <- results(CLConditionM3_noLRT, contrast = CLcondG - unweight_contrasts(CLall_butG))
+
+# extract the genes with p-values below 0.001
+CLDE_each_group2 <- bind_rows(
+  make_df_for_each_focal_comp(CLDEGs_condA2, "A", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condD2, "D", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condE2, "E", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condF2, "F", 0.001),
+  make_df_for_each_focal_comp(CLDEGs_condG2, "G", 0.001)
+)
+
+
+CLDE_numbers_by_grp2 <- CLDE_each_group2%>%
+  group_by(condition)%>%
+  summarise(upreg = sum(diff_exp == "up", na.rm = T),
+            downreg = sum(diff_exp == "down", na.rm = T),
+            noDE = sum(diff_exp == "no", na.rm = T),
+            total_tested = sum(!is.na(padj)))
+# DE_numbers_by_grp2
+```
+
+```{r}
+# combine the data frames, with and without weighted groups
+CLDE_comparing_contrasts <- CLDE_each_group%>%
+  left_join(., 
+            select(CLDE_each_group2, gene, condition, base_mean2 = base_mean, lfc2 = lfc, padj2 = padj))
+```
+
+This plot shows how well the two contrasts are correlated. The x-axis is the log fold change between the focal group (panel) and unadjusted mean expression in the remaining groups. The y-axis, by contrast, is the log fold change when the mean expression in the non-focal groups was adjusted, such that each devo stage had equal weight.
+
+```{r}
+ggplot(CLDE_comparing_contrasts, aes(lfc, lfc2)) +
+  geom_point(alpha = 0.05) +
+  geom_abline() +
+  geom_smooth(method = lm, se = F, linetype = "dashed") +
+  labs(x = "LfC, unadjusted", y = "LfC, adjusted") +
+  facet_wrap(~condition) +
+  coord_cartesian(xlim = c(-10,10), ylim = c(-10,10) )
+```
+Here, in condition A, the effect sizes may be exaggerated by the uneven sampling? But the sampling is not uneven.
+
+
+```{r}
+CLDE_comparing_contrasts <- CLDE_numbers_by_grp%>%
+  left_join(., 
+            select(CLDE_numbers_by_grp2, condition, upreg2 = upreg, downreg2 = downreg))
+ggplot(CLDE_comparing_contrasts, aes(upreg, upreg2)) +
+  geom_abline() +
+  geom_label(aes(label = condition)) +
+  labs(x = "Number upregulated, unadjusted", y = "Number upregulated, adjusted")
+```
+
+
+
+# Shared expression among stages
+
+
+
+```{r}
+# make diff express var wide at gene level
+CLDE_each_group_wide <- CLDE_each_group2%>%
+  select(gene, condition, diff_exp)%>%
+  pivot_wider(names_from = condition, values_from = diff_exp)
+
+# sum the cases for when two genes are up or down-regulated in two treatments
+CLtot_both <- function(v1, v2){sum(!is.na(v1) & !is.na(v2), na.rm=T)}
+CLupreg_both <- function(v1, v2){sum(v1=="up" & v2=="up", na.rm=T)}
+CLdownreg_both <- function(v1, v2){sum(v1=="down" & v2=="down", na.rm=T)}
+
+CLDE_tot_shared <- CLDE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., tot_both)
+
+CLDE_up_shared <- CLDE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., upreg_both)
+
+CLDE_down_shared <- CLDE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., downreg_both)
+
+# calc the prop of DE genes shared in two treatments
+CLupreg_both <- function(v1, v2){
+  sum(v1=="up" & v2=="up", na.rm=T) / sum(v1=="up" | v2=="up", na.rm=T)}
+
+CLdownreg_both <- function(v1, v2){
+  sum(v1=="down" & v2=="down", na.rm=T) / sum(v1=="down" | v2=="down", na.rm=T)}
+
+CLDE_up_shared2 <- CLDE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., upreg_both)
+
+CLDE_down_shared2 <- CLDE_each_group_wide%>%
+  select(-gene)%>%
+  corrr::colpair_map(., downreg_both)
+
+# make long again
+CLDE_tot_shared <- CLDE_tot_shared%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "total_tested")
+  # filter(term <= cond) # take lower tri
+CLDE_up_shared <- CLDE_up_shared%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "upreg")
+CLDE_down_shared <- CLDE_down_shared%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "downreg")
+CLDE_up_shared2 <- CLDE_up_shared2%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "upreg_prop")
+CLDE_down_shared2 <- CLDE_down_shared2%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "downreg_prop")
+
+CLDE_pairwise_mat_long <- left_join(CLDE_tot_shared, CLDE_up_shared)%>%
+  left_join(., CLDE_down_shared)%>%
+  left_join(., CLDE_up_shared2)%>%
+  left_join(., CLDE_down_shared2)
+
+```
+
+```{r}
+CLDE_pairwise_mat_long$upreg[
+  which(CLDE_pairwise_mat_long$term == CLDE_pairwise_mat_long$cond)] <- CLDE_numbers_by_grp2$upreg
+
+CLDE_pairwise_mat_long$downreg[
+  which(CLDE_pairwise_mat_long$term == CLDE_pairwise_mat_long$cond)] <- CLDE_numbers_by_grp2$downreg
+
+CLDE_pairwise_mat_long$total_tested[
+  which(CLDE_pairwise_mat_long$term == CLDE_pairwise_mat_long$cond)] <- CLDE_numbers_by_grp2$total_tested
+```
+
+
+```{r}
+head(CLDE_pairwise_mat_long)
+```
+
+```{r}
+CLDE_pairwise_mat_plot <- bind_rows(
+  CLDE_pairwise_mat_long%>%
+    filter(term == cond)%>%
+    select(term, cond, shared_prop = upreg_prop, upreg, downreg),
+  CLDE_pairwise_mat_long%>%
+    filter(term > cond)%>%
+    select(term, cond, shared_prop = upreg_prop),
+  CLDE_pairwise_mat_long%>%
+    filter(term < cond)%>%
+    select(term, cond, shared_prop = downreg_prop)
+)
+```
+
+
+```{r matrix_plot_DEGs_prop}
+CLx_ax_lab <- c("Free", "Stick-inf", "Perch-grow", "Perch-repF", "Perch-repM")
+
+ggplot(CLDE_pairwise_mat_plot%>%
+         mutate(prop_chr = if_else(is.na(shared_prop), 
+                                   paste0(upreg, "\n", downreg),
+                                   as.character(round(shared_prop, 2))),
+                cond = fct_rev(cond)),
+       aes(x = term, y = cond, fill = shared_prop)) +
+  geom_tile(color = "gray") +
+  geom_text(aes(label = prop_chr)) +
+  scale_fill_distiller(name = "Proportion",
+                       palette = "Reds", direction = 1, na.value = "white") +
+  scale_x_discrete(labels = CLx_ax_lab, 
+                   guide = guide_axis(angle = 90),
+                   expand = c(0,0)) +
+  scale_y_discrete(labels = rev(CLx_ax_lab), 
+                   expand = c(0,0)) +
+  theme(axis.title = element_blank(),
+        # axis.text.y = element_blank()
+        )
+```
+
+
+
+```{r}
+p_thresh <- 0.001
+# # randomly sample degs to roughly estimate what proportion would be shared between two random groups
+degs <- int_condition%>%
+  filter(padj < p_thresh)%>%row.names(.) # all DEGs
+# take samples
+for(x in 1:50){
+  s1 <- sample(degs, 2221)
+  s2 <- sample(degs, 1149)
+  exp_p <- sum(s1 %in% s2)/n_distinct(c(s1,s2))
+  if(x==1){
+    out_v <- exp_p
+  } else {
+    out_v <- c(out_v, exp_p)
+  }
+}
+summary(out_v)
+```
+
+
+
+```{r}
+# make diff express var wide at gene level
+CLDE_each_group_wide2 <- CLDE_each_group2%>%
+  select(gene, condition, lfc)%>%
+  pivot_wider(names_from = condition, values_from = lfc)
+
+# calculate spearman correlations for each pairwise comparison
+CLspear_cor <- function(v1, v2){cor.test(x = v1, y = v2, method = "spearman")$estimate}
+CLp_cor <- function(v1, v2){cor.test(x = v1, y = v2, method = "spearman")$p.value}
+
+CLDE_spear <- CLDE_each_group_wide2%>%
+  select(-gene)%>%
+  corrr::colpair_map(., spear_cor)
+CLDE_spear_pval <- CLDE_each_group_wide2%>%
+  select(-gene)%>%
+  corrr::colpair_map(., p_cor)
+
+# make long again
+CLDE_spear <- CLDE_spear%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "spearman_rho")
+  # filter(term <= cond) # take lower tri
+CLDE_spear_pval <- CLDE_spear_pval%>%
+  pivot_longer(A:G, names_to = "cond", values_to = "spearman_pval")
+
+CLDE_spear_long <- left_join(CLDE_spear, CLDE_spear_pval)
+```
+
+```{r}
+CLDE_pairwise_mat_long_spear <- CLDE_pairwise_mat_long%>%
+  left_join(., DE_spear_long)
+```
+
+```{r}
+CLDE_pairwise_mat_plot2 <- bind_rows(
+  CLDE_pairwise_mat_long_spear%>%
+    filter(term == cond)%>%
+    select(term, cond, shared_prop = upreg_prop, upreg, downreg),
+  CLDE_pairwise_mat_long_spear%>%
+    filter(term > cond)%>%
+    mutate(shared_prop = NA_real_)%>%
+    select(term, cond, shared_prop),
+  CLDE_pairwise_mat_long_spear%>%
+    filter(term < cond)%>%
+    select(term, cond, shared_prop = spearman_rho)
+)
+```
+
+
+
+```{r}
+# id functional stage
+CLDE_pairwise_mat_plot2 <- CLDE_pairwise_mat_plot2%>%
+  mutate(func_grp = case_when(
+    term == cond ~ NA_character_,
+    term %in% c("D") & cond %in% c("D") ~ "infecting",
+    term %in% c("E") & cond %in% c("E") ~ "growing",
+    term %in% c("A") & cond %in% c("A") ~ "trans"
+    ))
+```
+
+```{r matrix_plot_spearman}
+CLcorr_mat_ge <- ggplot(CLDE_pairwise_mat_plot2%>%
+         filter(term <= cond)%>%
+         mutate(prop_chr = if_else(is.na(shared_prop), 
+                                   paste0(upreg, "\n", downreg),
+                                   as.character(round(shared_prop, 2))),
+                cond = fct_rev(cond)),
+       aes(x = term, y = cond, fill = shared_prop)) +
+  geom_tile(color = "gray"
+    ) +
+  geom_tile(data = CLDE_pairwise_mat_plot2%>%filter(term <= cond, !is.na(func_grp)),
+            aes(color = func_grp), size = 1.5
+    # color = "gray"
+    ) +
+  geom_text(aes(label = prop_chr)) +
+  scale_color_brewer(name = "Function", palette = "Dark2") +
+  scale_fill_distiller(name = "Spearman",
+                       palette = "RdBu", direction = -1, na.value = "white") +
+  scale_x_discrete(labels = CLx_ax_lab, 
+                   guide = guide_axis(angle = 90),
+                   expand = c(0,0)) +
+  scale_y_discrete(labels = rev(CLx_ax_lab), 
+                   expand = c(0,0)) +
+  theme(axis.title = element_blank(),
+        panel.grid.major = element_blank()
+        # axis.text.y = element_blank()
+        )
+CLcorr_mat_ge
+```
+
+
+
+```{r}
+make_mat_plot <- function(dx, x, y){
+  px <- ggplot(dx,
+         aes({{x}}, {{y}})) +
+    geom_point(size = 0.01, color = "gray") +
+    geom_hline(yintercept = 0, linetype = "dotted") +
+    geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(se = F) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10,10) ) +
+    theme(axis.title = element_blank(),
+          axis.text = element_blank(),
+          axis.ticks = element_blank(),
+          panel.grid = element_blank(),
+          panel.border = element_rect(color = NA),
+          plot.background = element_rect(color = NA),
+          plot.margin = margin(0,0,0,0))
+  return(px)
+}
+```
+```{r}
+CLpal_grps <- RColorBrewer::brewer.pal(3, "Dark2")
+```
+
+
+
+```{r matrix_plot_spearman2}
+CLcorr_mat_ge + 
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, D)),
+    xmin = 1.5, xmax = 2.5, ymin = 4.5, ymax = 5.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, E)),
+    xmin = 2.5, xmax = 3.5, ymin = 4.5, ymax = 5.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, `F`)),
+    xmin = 3.5, xmax = 4.5, ymin = 4.5, ymax = 5.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, A, G)),
+    xmin = 4.5, xmax = 5.5, ymin = 4.5, ymax = 5.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, E)),
+    xmin = 2.5, xmax = 3.5, ymin = 3.5, ymax = 4.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, `F`)),
+    xmin = 3.5, xmax = 4.5, ymin = 3.5, ymax = 4.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, D, G)),
+    xmin = 4.5, xmax = 5.5, ymin = 3.5, ymax = 4.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, `F`)),
+    xmin = 3.5, xmax = 4.5, ymin = 2.5, ymax = 3.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, E, G)),
+    xmin = 4.5, xmax = 5.5, ymin = 2.5, ymax = 3.5) +
+  annotation_custom(
+    ggplotGrob(make_mat_plot(DE_each_group_wide2, `F`, G)),
+    xmin = 4.5, xmax = 5.5, ymin = 1.5, ymax = 2.5)
+
+```
+
+
+
+```{r}
+CLcounts_long <- CLcountdf_pumu%>%
+  mutate(gene = row.names(CLcountdf_pumu))%>%
+  filter(!gene %in% low_genes)%>%
+  pivot_longer(ConditionA1:ConditionG4, names_to = "sample_id", values_to = "count")%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = sample_id))
+
+CLcounts_grp_avg <- CLcounts_long%>%
+  group_by(gene, grp)%>%
+  summarise(med_count = median(count))
+
+CLcounts_grp_avg_wide <- CLcounts_grp_avg%>%
+  pivot_wider(names_from = grp, values_from = med_count)
+
+# calculate spearman correlations for each pairwise comparison
+CLDE_spear_counts <- CLcounts_grp_avg_wide%>%
+  ungroup()%>%
+  select(-gene)%>%
+  corrr::colpair_map(., spear_cor)
+CLDE_spear_counts
+```
+
+```{r}
+for(x in 1:50){
+  # make permuted data by changing column names
+  CLcountdf_perm <- CLcountdf_pumu
+  colnames(CLcountdf_perm) <- sample(colnames(CLcountdf_perm), replace = F)
+  
+  # refit model
+  CLM3_perm <- DESeqDataSetFromMatrix(
+    countData = CLcountdf_perm,
+    colData = CLcolData[colnames(CLcountdf_perm),],
+    design= ~ Condition)
+  
+  CLConditionM3_perm <- DESeq(CLM3_perm)
+  
+  # model matrix to calculate contrasts
+  CLmod_mat <- model.matrix(design(CLConditionM3_perm), colData(CLConditionM3_perm))
+  
+  # to extract means for each group
+  CLcondA_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition == "ConditionA", ])
+  CLcondD_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition == "ConditionD", ])
+  CLcondE_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition == "ConditionE", ])
+  CLcondF_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition == "ConditionF", ])
+  CLcondG_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition == "ConditionG", ])
+  
+  # to extract means for all groups besides the focal group
+  CLall_butA_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition != "ConditionA", ])
+  CLall_butD_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition != "ConditionD", ])
+  CLall_butE_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition != "ConditionE", ])
+  CLall_butF_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition != "ConditionF", ])
+  CLall_butG_perm <- colMeans(CLmod_mat[CLConditionM3_perm$Condition != "ConditionG", ])
+  
+  # calculate contrasts for each focal group vs all other groups
+  CLDEGs_condA2_perm <- results(CLConditionM3_perm, contrast = CLcondA_perm - unweight_contrasts(CLall_butA_perm))
+  CLDEGs_condD2_perm <- results(CLConditionM3_perm, contrast = CLcondD_perm - unweight_contrasts(CLall_butD_perm))
+  CLDEGs_condE2_perm <- results(CLConditionM3_perm, contrast = CLcondE_perm - unweight_contrasts(CLall_butE_perm))
+  CLDEGs_condF2_perm <- results(CLConditionM3_perm, contrast = CLcondF_perm - unweight_contrasts(CLall_butF_perm))
+  CLDEGs_condG2_perm <- results(CLConditionM3_perm, contrast = CLcondG_perm - unweight_contrasts(CLall_butG_perm))
+  
+  # extract the genes with p-values below 0.001
+  CLDE_each_group_perm <- bind_rows(
+    make_df_for_each_focal_comp(CLDEGs_condA2_perm, "A", 0.001),
+    make_df_for_each_focal_comp(CLDEGs_condD2_perm, "D", 0.001),
+    make_df_for_each_focal_comp(CLDEGs_condE2_perm, "E", 0.001),
+    make_df_for_each_focal_comp(CLDEGs_condF2_perm, "F", 0.001),
+    make_df_for_each_focal_comp(CLDEGs_condG2_perm, "G", 0.001)
+  )
+  
+  # make diff express var wide at gene level
+  CLDE_each_group_wide_perm <- CLDE_each_group_perm%>%
+    select(gene, condition, lfc)%>%
+    pivot_wider(names_from = condition, values_from = lfc)
+  
+  # calculate spearman correlations for each pairwise comparison
+  CLDE_spear_perm <- CLDE_each_group_wide_perm%>%
+    select(-gene)%>%
+    corrr::colpair_map(., spear_cor)
+  CLDE_spear_pval_perm <- CLDE_each_group_wide_perm%>%
+    select(-gene)%>%
+     corrr::colpair_map(., p_cor)
+  
+  # make long again
+  CLDE_spear_perm <- CLDE_spear_perm%>%
+    pivot_longer(A:G, names_to = "cond", values_to = "spearman_rho")
+  CLDE_spear_pval_perm <- CLDE_spear_pval_perm%>%
+    pivot_longer(A:G, names_to = "cond", values_to = "spearman_pval")
+  
+  CLDE_spear_long_perm <- left_join(CLDE_spear_perm, CLDE_spear_pval_perm)
+  CLDE_spear_long_perm <- CLDE_spear_perm
+  CLDE_spear_long_perm$perm <- x
+  
+  if(x == 1){
+    CLDE_spear_long_out <- CLDE_spear_long_perm
+  } else {
+    CLDE_spear_long_out <- bind_rows(CLDE_spear_long_out, CLDE_spear_long_perm)
+  }
+  print(paste0("finished iteration ", as.character(x)))
+}
+
+```
+
+```{r}
+#CLDE_spear_long_out%>%
+#   select(term, cond, spearman_rho, perm)%>%
+#  pivot_wider(names_from = perm, values_from = spearman_rho)%>%
+#  ggplot(., aes(`1`, `2`)) + geom_point() + geom_smooth()
+  
+
+# CLDE_spear_long_out%>%
+#   group_by(term, cond)%>%
+#   summarize(med_rho = median(spearman_rho),
+             # upr_rho = quantile(spearman_rho, probs = 0.975, na.rm =T),
+             # lwr_rho = quantile(spearman_rho, probs = 0.025, na.rm =T),
+#             upr_rho = max(spearman_rho, na.rm =T),
+#             lwr_rho = min(spearman_rho, na.rm =T))
+```
+
+
+```{r}
+CLDE_spear_long_out%>%
+  filter(term < cond)%>%
+  ggplot(., aes(spearman_rho)) +
+  geom_histogram(aes(y=..density..)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  geom_vline(data=CLDE_spear_long_out%>%
+               filter(term < cond)%>%
+               summarize(med_rho = median(spearman_rho)),
+             aes(xintercept = med_rho), color = "blue")
+```
+
+
+
+```{r}
+ggplot(CLDE_spear_long_out%>%
+         filter(term < cond),
+       aes(x = spearman_rho)) +
+  geom_histogram(aes(y=..density..)) +
+  geom_density() +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  geom_vline(data=CLDE_spear_long_out%>%
+               filter(term < cond)%>%
+               group_by(term, cond)%>%
+               summarize(med_rho = median(spearman_rho)),
+             aes(xintercept = med_rho), color = "blue") +
+  facet_grid(term ~ cond) +
+  theme(panel.grid.major.y = element_blank())
+```
+
+
+```{r}
+CLDE_spear_long_plot <- CLDE_spear_long_out%>%
+  filter(term < cond)%>%
+  group_by(term, cond)%>%
+  summarize(med_rho = median(spearman_rho),
+            upr_rho = quantile(spearman_rho, probs = 0.975, na.rm =T),
+            lwr_rho = quantile(spearman_rho, probs = 0.025, na.rm =T)
+            # upr_rho = max(spearman_rho, na.rm =T),
+            # lwr_rho = min(spearman_rho, na.rm =T)
+            )%>%
+  ungroup()%>%
+  mutate(pair = paste0(term, "_", cond))%>%
+  mutate(func_grp = case_when(
+    pair %in% c("D_E", "E_F", "F_G") ~ "consecutive",
+    term %in% c("F", "G") & cond %in% c("F", "G") ~ "function: reproduction",
+    !is.na(pair) ~ "non-consecutive")
+    )
+CLDE_spear_long_plot <- CLDE_spear_long_plot%>%
+  left_join(., 
+            CLDE_pairwise_mat_plot2%>%
+              filter(term < cond)%>%
+              mutate(pair = paste0(term, "_", cond))%>%
+              select(pair, obs_spearman = shared_prop))
+```
+
+
+
+```{r}
+CLDE_spear_long_plot%>%
+  arrange(func_grp)%>%
+  mutate(pair = fct_inorder(pair))%>%
+  ggplot(., aes(x = pair, y = med_rho)) + 
+  geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
+  geom_point(aes(x = pair, y = obs_spearman, color = func_grp),
+             shape = 15, size = 2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  coord_flip() + 
+  scale_x_discrete(limits = rev) +
+  labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
+  theme(panel.grid.major.y = element_blank())
+```
+
+Here are whether observed spearman correlations were greater or less than expected, by group.
+
+```{r}
+CLDE_spear_long_plot%>%
+  group_by(func_grp)%>%
+  summarize(n = n(),
+            cor_lower_than_expected = sum(obs_spearman < med_rho),
+            cor_sig_lower = sum(obs_spearman < lwr_rho),
+            cor_sig_higher = sum(obs_spearman > upr_rho))
+```
+
+The genes that are up- and down-regulated at each stage, relative to the rest of the life cycle, are to be used in the enrichment analyses, so the table listing the up- and down-regulated genes in each group was written to file.
+
+```{r}
+#write.csv(CLDE_each_group2, file = "~/GitHub/Worms/Camallanus/data/DEGs_by_devo_stageCL.csv", row.names = F)
+```
+
+
+
+####I STOPPED HERE#######
+
+# DESeq2 vs Wilcoxon tests
+
+Finally, a note of caution about the DEGs. This [paper](https://genomebiology.biomedcentral.com/articles/10.1186/s13059-022-02648-4) shows how `DESeq2` may be anticonservative and impacted by outliers (which is one reason that a rather stringent, low p-value was chosen). They further suggest that wilcoxon rank tests may be a more appropriate way to measure DGE, though our sample sizes per group may be on the low size for those non-parametric tests. Still, let's quickly examine how big of a problem this might be. Using just the subset of ~11000 genes that appear DE at some life stage (i.e. were significant in the full model), we can compare the first two developmental stages, which were rather similar. For every gene, we calculate a wilcoxon test.
+
+```{r}
+conditions <- SScolData%>%
+  filter(Condition %in% c("ConditionA", "ConditionB"))
+samp_names <- conditions$Unique_name
+cond_fac <- conditions$Condition
+cond_fac <- factor(t(cond_fac))
+
+count_df_pair <- SScountdf[degs, samp_names]
+
+pvalues_wilc_AB <- sapply(1:nrow(count_df_pair),function(i){
+     data<-cbind.data.frame(gene=as.numeric(t(count_df_pair[i,])), cond_fac)
+     p=wilcox.test(gene~cond_fac, data, correct = F, exact = F)$p.value
+     return(p)
+   })
+pvalues_wilc_AB_fdr <- p.adjust(pvalues_wilc_AB, method = "fdr")
+```
+
+Here are the number of genes considered to differ significantly (p < 0.05) by the wilcoxon test.
+
+```{r}
+sum(pvalues_wilc_AB < 0.05, na.rm = T)
+```
+
+This of course decreases substantially after applying the FDR correction, in fact no genes are considered DE after this correction.
+
+```{r}
+sum(pvalues_wilc_AB_fdr < 0.05, na.rm = T)
+```
+
+We can compare this to the DESeq model. We extract the contrasts between the first two stages. Few genes are diff. expressed at the same significance threshold.
+
+```{r}
+DEGs_condA_vs_B <- results(ConditionM3_noLRT, contrast = condA - condB)
+
+dge_AB <- make_df_for_each_focal_comp(DEGs_condA_vs_B, "AB", 0.05)
+
+table(dge_AB$diff_exp)
+```
+
+Even if few genes pass the significance threshold, we might expect the p-values from the DESeq model and the wilcoxon models to be correlated. Here's that pattern. Low p-values from one method are often associated with low values from the other method, though this is not as clearly the case for higher values.
+
+```{r}
+dge_AB <- dge_AB%>%
+  filter(gene %in% degs)%>%
+  mutate(pval_wilc = pvalues_wilc_AB_fdr)
+
+ggplot(dge_AB, aes(pval_wilc, padj)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = F) +
+  scale_x_log10() + scale_y_log10() +
+  coord_cartesian(
+    # xlim = c(0.001, 1), 
+    ylim = c(0.001, 1))
+```
+
+In any case, the spearman correlation between p-values is significant, which is reassuring that the two tests both responsive to differences.
+
+```{r}
+cor.test(dge_AB$padj, dge_AB$pval_wilc, method = "spearman", use = "pairwise")
+```
+
+Since the first two developmental stages were rather similar, we can compare the first and third stage (i.e. coracidia vs growing in copepods). 
+
+```{r}
+conditions <- SScolData%>%
+  filter(Condition %in% c("ConditionA", "ConditionC"))
+samp_names <- conditions$Unique_name
+cond_fac <- conditions$Condition
+cond_fac <- factor(t(cond_fac))
+
+count_df_pair <- SScountdf[degs, samp_names]
+
+pvalues_wilc_AC <- sapply(1:nrow(count_df_pair),function(i){
+     data<-cbind.data.frame(gene=as.numeric(t(count_df_pair[i,])), cond_fac)
+     p=wilcox.test(gene~cond_fac, data, correct = F, exact = F)$p.value
+     return(p)
+   })
+pvalues_wilc_AC_fdr <- p.adjust(pvalues_wilc_AC, method = "fdr")
+```
+
+Here are the number of genes considered to differ significantly (p < 0.05) by the wilcoxon test.
+
+```{r}
+sum(pvalues_wilc_AC < 0.05, na.rm = T)
+```
+
+Again, all of these are removed after applying the FDR correction.
+
+```{r}
+sum(pvalues_wilc_AC_fdr < 0.05, na.rm = T)
+```
+
+Let's compare this to the DESeq model. The model noted more DEGs than the wilcoxon test did.
+
+```{r}
+DEGs_condA_vs_C <- results(ConditionM3_noLRT, contrast = condA - condC)
+
+dge_AC <- make_df_for_each_focal_comp(DEGs_condA_vs_C, "AC", 0.05)
+
+table(dge_AC$diff_exp)
+```
+
+However, the p-values are correlated, they are just more significant in the DESeq models.
+
+```{r}
+dge_AC <- dge_AC%>%
+  filter(gene %in% degs)%>%
+  mutate(pval_wilc = pvalues_wilc_AC,
+         pval_wilc2 = pvalues_wilc_AC_fdr)
+ggplot(dge_AC, aes(pval_wilc2, padj)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = F) +
+  scale_x_log10() + scale_y_log10() +
+  coord_cartesian(
+    xlim = c(0.01, 1), 
+    ylim = c(0.0001, 1))
+# # same plot but with unadjusted pvals from wilcoxon test
+# ggplot(dge_AC, aes(pval_wilc, padj)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth(se = F) +
+#   scale_x_log10() + scale_y_log10() +
+#   coord_cartesian(
+#     xlim = c(0.001, 1), 
+#     ylim = c(0.00001, 1))
+```
+
+The spearman correlation between p-values is much clearer. 
+
+```{r}
+cor.test(dge_AC$padj, dge_AC$pval_wilc2, method = "spearman", use = "pairwise")
+```
+
+So, these results are consistent with the idea that there are patterns in some genes being picked out by both tests. The parametric model is simply more likely to consider the pattern significant than the non-parametric wilcoxon test. As a final comparison between these methods, let's compare the first and last developmental stage, which are quite different.
+
+```{r}
+conditions <- SScolData%>%
+  filter(Condition %in% c("ConditionA", "ConditionL"))
+samp_names <- conditions$Unique_name
+cond_fac <- conditions$Condition
+cond_fac <- factor(t(cond_fac))
+
+count_df_pair <- SScountdf[degs, samp_names]
+
+pvalues_wilc_AL <- sapply(1:nrow(count_df_pair),function(i){
+     data<-cbind.data.frame(gene=as.numeric(t(count_df_pair[i,])), cond_fac)
+     p=wilcox.test(gene~cond_fac, data, correct = F, exact = F)$p.value
+     return(p)
+   })
+pvalues_wilc_AL_fdr <- p.adjust(pvalues_wilc_AL, method = "fdr")
+```
+
+Here are the number of genes considered to differ significantly (p < 0.05) by the wilcoxon test.
+
+```{r}
+sum(pvalues_wilc_AL < 0.05, na.rm = T)
+```
+
+Many are still significant even after FDR correction.
+
+```{r}
+sum(pvalues_wilc_AL_fdr < 0.05, na.rm = T)
+```
+
+Here are the numbers from the DESeq model. It is quite a bit more.
+
+```{r}
+DEGs_condA_vs_L <- results(ConditionM3_noLRT, contrast = condA - condL)
+
+dge_AL <- make_df_for_each_focal_comp(DEGs_condA_vs_L, "AL", 0.05)
+
+table(dge_AL$diff_exp)
+```
+
+```{r}
+dge_AL <- dge_AL%>%
+  filter(gene %in% degs)%>%
+  mutate(pval_wilc = pvalues_wilc_AL,
+         pval_wilc2 = pvalues_wilc_AL_fdr)
+ggplot(dge_AL, aes(pval_wilc2, padj)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = F) +
+  scale_x_log10() + scale_y_log10() +
+  coord_cartesian(
+    xlim = c(0.001, 1), 
+    ylim = c(0.00001, 1))
+# # unadjust pvals from wilcoxon test
+# ggplot(dge_AL, aes(pval_wilc, padj)) +
+#   geom_point(alpha = 0.1) +
+#   geom_smooth(se = F) +
+#   scale_x_log10() + scale_y_log10() +
+#   coord_cartesian(
+#     xlim = c(0.001, 1), 
+#     ylim = c(0.00001, 1))
+```
+
+The spearman correlation between p-values is even clearer, suggesting that the DESeq and wilcoxon methods are rather concordant when there are larger differences between pairs of stages.
+
+```{r}
+cor.test(dge_AL$padj, dge_AL$pval_wilc2, method = "spearman", use = "pairwise")
+```
+
+```{r}
+save.image(file = "DEG_model_script_out.RData")
+sessionInfo()
+```
+
+
+

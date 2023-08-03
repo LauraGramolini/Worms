@@ -1,0 +1,488 @@
+---
+title: "GSEA_cama"
+author: "Laura Gramolini"
+date: '2023-07-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load the data and prepare datasets
+
+Load the libraries we need:
+```{r}
+library(GSEABase)
+library(GOSemSim)
+library(clusterProfiler)
+library(enrichplot)
+library(tidyverse)
+library(AnnotationDbi)
+library(AnnotationHub)
+library(GO.db)
+library(simplifyEnrichment)
+library(GSA)
+library(DOSE)
+library(gridtext)
+```
+
+Load the data, DEGs for each condition:
+```{r}
+setwd("~/GitHub/Worms/Camallanus/R")
+DEGs_results<- read.csv("~/GitHub/Worms/Camallanus/data/DEGs_by_devo_stageCL.csv", header=TRUE, sep=",")
+```
+
+Rename the genes:
+```{r}
+#Remove "gene" from the gene column
+DEGs_results$gene <- str_replace(DEGs_results$gene, "gene:", "")
+```
+
+GSEA wants the annotation as dataframe with 2 columns.
+Prepare the functional annotation:
+```{r}
+#This part was run in another script (topGO) to prepare the annotation file, that was then saved as "gene2GO"
+
+#Import annotation file
+annotation <- read.csv("/SAN/Lauras_territory/Novaseq/cama/fish_genomes/star_out_loop/supertranscriptome_cama/cama_GOanno.csv", sep = "\t", header = TRUE)
+
+##We have to adjust the table with Gene ID (tab) GO1, GO2 ...
+gene2GO <- filter(annotation, GOs != "-") %>%  
+ dplyr::select(query, GOs)
+  
+#Adjust the names
+gene2GO$query <- gsub(pattern = "\\|m\\.\\d+", replacement = "",  as.character(gene2GO$query))
+gene2GO$query <- gsub(pattern = "Cluster-", replacement = "", gene2GO$query)
+str(gene2GO)
+
+#gene2GO <- gsub("\"", "", gene2GO)
+#gene2GO$query <- str_extract(gene2GO$query, """")
+
+head(gene2GO)
+write.table(gene2GO, file="~/GitHub/Worms/Camallanus/data/gene2GO.txt", row.names = F, col.names = F, sep=" ", quote = FALSE)
+
+#Now I can reload the object
+gene2GO <- readMappings("~/GitHub/Worms/Camallanus/data/gene2GO.txt", sep = " ")
+str(head(gene2GO))
+
+GO2gene <- inverseList(gene2GO)
+head(GO2gene)
+
+##I should transform this into a dataframe
+GO2gene <- as.data.frame(do.call(rbind, GO2gene))
+
+#Extract the GOs as vector
+GOs <- rownames(GO2gene)
+
+#I put it in a long format
+df_GO2gene <- GO2gene %>% 
+  mutate(GOs=GOs) %>% 
+  pivot_longer(
+ !GOs,
+ names_to = NULL,
+ values_to = "gene")
+
+df_GO2gene <- unique(df_GO2gene)
+```
+
+...and a named numeric vector (with either logfoldchanges or p values or the combination). 
+It can also use only the list of genes without any score but it has to be already only the DE Genes. 
+
+Here I prepare the GeneLists:
+```{r}
+#prepare Genelists:
+conditions <- lapply(LETTERS[c(1, 4:7)], function(x){
+ filter(DEGs_results, condition ==x)
+})
+
+#Add the rank_metric column to each dataframe
+for (i in seq_along(conditions)) {
+  conditions[[i]] <- mutate(conditions[[i]],
+                            rank_metric = sign(conditions[[i]][["lfc"]])*(-log10(conditions[[i]][["padj"]])))
+}
+
+ConditionA <- conditions[[1]]
+ConditionD <- conditions[[2]]
+ConditionE <- conditions[[3]]
+ConditionF <- conditions[[4]]
+ConditionG <- conditions[[5]]
+
+
+ConditionA$gene <- gsub(pattern = "Cluster-", replacement = "", ConditionA$gene)
+ConditionD$gene <- gsub(pattern = "Cluster-", replacement = "", ConditionD$gene)
+ConditionE$gene <- gsub(pattern = "Cluster-", replacement = "", ConditionE$gene)
+ConditionF$gene <- gsub(pattern = "Cluster-", replacement = "", ConditionF$gene)
+ConditionG$gene <- gsub(pattern = "Cluster-", replacement = "", ConditionG$gene)
+
+# we want the rank_metric as named numeric vector, try for one condition
+allGenesA <- ConditionA$rank_metric
+names(allGenesA) <- ConditionA$gene
+allGenesA<-na.omit(allGenesA)
+
+# sort the list in decreasing order (required for clusterProfiler)
+allGenesA = sort(allGenesA, decreasing = TRUE)
+
+
+
+allGenesD <- ConditionD$rank_metric
+names(allGenesD) <- ConditionD$gene
+allGenesD<-na.omit(allGenesD)
+allGenesD = sort(allGenesD, decreasing = TRUE)
+
+allGenesE <- ConditionE$rank_metric
+names(allGenesE) <- ConditionE$gene
+allGenesE<-na.omit(allGenesE)
+allGenesE = sort(allGenesE, decreasing = TRUE)
+
+
+allGenesF <- ConditionF$rank_metric
+names(allGenesF) <- ConditionF$gene
+allGenesF<-na.omit(allGenesF)
+allGenesF = sort(allGenesF, decreasing = TRUE)
+
+
+allGenesG <- ConditionG$rank_metric
+names(allGenesG) <- ConditionG$gene
+allGenesG<-na.omit(allGenesG)
+allGenesG = sort(allGenesG, decreasing = TRUE)
+
+
+```
+
+Have a look at the input data:
+```{r}
+ConditionE %>% 
+  ggplot(aes(x=rank_metric, y=-log10(padj)))+
+  geom_point()
+```
+
+```{r}
+sum(ConditionA$padj<0.05)
+```
+
+#Run GSEA
+
+Run GSEA for the first condition only
+```{r}
+GSEA_A <- GSEA(geneList = allGenesA,
+               pvalueCutoff = 2,
+                 TERM2GENE = df_GO2gene,
+             TERM2NAME = NA)
+
+###This the warning message obtained:
+#preparing geneSet collections...
+#GSEA analysis...
+#Warning in preparePathwaysAndStats(pathways, stats, minSize, maxSize, gseaParam,  :
+ # There are ties in the preranked stats (9.13% of the list).
+#The order of those tied genes will be arbitrary, which may produce unexpected results.
+#Warning in fgseaMultilevel(pathways = pathways, stats = stats, minSize = minSize,  :
+ # For some pathways, in reality P-values are less than 1e-10. You can set the `eps` argument to zero for better estimation.
+#leading edge analysis...
+#done...
+```
+
+Plot the results in different ways.
+The dotplot:
+```{r}
+#dotplot(GSEA_A, showCategory = 40)
+```
+
+The tree:
+```{r}
+#pairterA <- pairwise_termsim(GSEA_A)
+#treeplot(pairterA, showCategory = 2)
+######Can't change the number of GO terms to use and the number of clusters
+```
+
+The heatmap:
+```{r}
+#heatplot(pairterA, showCategory = 10, foldChange = allGenesA)
+```
+
+If we extract the enrichment results we can cluster them with simplifyEnrichment package as described here: https://jokergoo.github.io/simplifyEnrichment/articles/simplifyEnrichment.html
+This package uses GOSemSim but has other features (let's see if they are useful)
+```{r}
+#Extract a vector of GO terms from GSEA (they are all significant)
+#enrichGOs_A <- GSEA_A$ID
+
+#Use GO_similarity to calculate the semantic similarity matrix
+#mat_A = GO_similarity(enrichGOs_A, ont= "BP") #1762/7343 GO terms are removed.
+
+#GOs clusters
+#clustersA = binary_cut(mat_A)
+```
+
+If it's stored in an object, simplifyGO and binary_cut() functions produce a dataset with 2 columns: 1 is the list of GO terms and 1 is the cluster's number assigned.
+
+Now let's run GSEA for all the other conditions:
+```{r}
+GSEA_D <- GSEA(geneList = allGenesD,
+               pvalueCutoff = 2,
+                 TERM2GENE = df_GO2gene,
+             TERM2NAME = NA)
+
+GSEA_E <- GSEA(geneList = allGenesE,
+               pvalueCutoff = 2,
+                 TERM2GENE = df_GO2gene,
+             TERM2NAME = NA)
+
+GSEA_F <- GSEA(geneList = allGenesF,
+               pvalueCutoff = 2,
+                 TERM2GENE = df_GO2gene,
+             TERM2NAME = NA)
+
+
+GSEA_G <- GSEA(geneList = allGenesG,
+               pvalueCutoff = 2,
+                 TERM2GENE = df_GO2gene,
+             TERM2NAME = NA)
+
+
+#####Always the same warning
+```
+
+I can put the GSEA results all together in a df:
+```{r}
+GOs_A <- as.data.frame(GSEA_A@result)
+GOs_D <- as.data.frame(GSEA_D@result)
+GOs_E <- as.data.frame(GSEA_E@result)
+GOs_F <- as.data.frame(GSEA_F@result)
+GOs_G <- as.data.frame(GSEA_G@result)
+
+
+GOs_list <- list(GOs_A, GOs_D, GOs_E, GOs_F, GOs_G)
+enrichedGOs <- bind_rows(GOs_list, .id = "condition")
+row.names(enrichedGOs) <- NULL
+enrichedGOs
+
+##Conditions have changed from letters (A, B C ...) to numbers (1 to 10)
+#Change the conditions back to letters:
+lxn <-  data.frame(old_name = c(1,2,3,4,5), 
+                   new_name = c("A","D","E","F","G"))
+
+enrichedGOs <- enrichedGOs %>%
+  mutate(condition = set_names(lxn$new_name, lxn$old_name)[condition])
+
+```
+
+#Explore the results
+
+Try to plot a heatmap with the padj:
+```{r}
+enrichedGOs %>%  
+  filter(!is.na(ID)) %>% 
+ggplot(aes(x = condition, y = ID)) +
+  geom_tile(aes(fill = p.adjust)) +
+  scale_fill_distiller(type = "div", palette = "YlOrRd") +
+  theme(axis.text = element_blank(),
+    axis.text.x = element_text(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid = element_blank()) +
+  labs(fill = "padj")
+
+```
+Some GO terms are enriched in some samples but are not present in others.
+
+Boxplots to see how the condition varies in significance in each cluster:
+```{r}
+##Filter low pvalues
+enrichedGOs %>% 
+  filter(p.adjust < 0.05) %>% 
+  ggplot(aes(x=condition, y=NES))+
+  geom_boxplot()
+```
+
+How does the padj changes with the NES?
+```{r}
+enrichedGOs %>% 
+  ggplot(aes(x=NES, y=-log10(p.adjust)))+
+  geom_point(aes(colour = condition))
+```
+
+Heatmap using NES instead of padj:
+```{r}
+enrichedGOs%>%
+   ggplot(aes(x = condition, y = ID)) +
+  geom_tile(aes(fill = NES)) +
+  scale_fill_distiller(palette = "RdBu") +
+  theme(axis.text = element_blank(),
+        axis.text.x = element_text(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid = element_blank()) +
+  labs(fill = "NES")
+
+```
+
+#Simplify the GO terms
+
+Here I want to cluster the GO terms to reduce the complexity. To do that I will use simplifyEnrichment (https://jokergoo.github.io/simplifyEnrichment/index.html).
+I have to create a list with the GOs results from the GSEA to use for the clustering.
+Compile the list of named numeric vectors (p.adjust) here:
+```{r}
+enrichGOs_A <- GSEA_A$p.adjust
+enrichGOs_D <- GSEA_D$p.adjust
+enrichGOs_E <- GSEA_E$p.adjust
+enrichGOs_F <- GSEA_F$p.adjust
+enrichGOs_G <- GSEA_G$p.adjust
+
+names(enrichGOs_A) <- GSEA_A$ID
+names(enrichGOs_D) <- GSEA_D$ID
+names(enrichGOs_E) <- GSEA_E$ID
+names(enrichGOs_F) <- GSEA_F$ID
+names(enrichGOs_G) <- GSEA_G$ID
+
+
+##This is maybe useless
+all_nnvGOs <- list(enrichGOs_A, enrichGOs_D, enrichGOs_E, enrichGOs_F, enrichGOs_G)
+```
+In this list the GO terms are repeated though. Can I use unique on this?
+
+Now I run a function to chose the best clustering method offered from the package:
+```{r}
+#To work with all the GO terms and play with clustering I have to first create a vector of GO IDs that dont't repeat!!
+allGOs <- as.vector(enrichedGOs$ID)
+allGOs <- as.vector(unique(GOs))
+
+#Then build the similarity matrix
+#First argument is a vector of GOs ID. It uses the annotation database to find similarities, so the matrix that it builds is based on the terms BP
+mat = GO_similarity(allGOs, ont="BP") ##It removes terms that don't have similarities at all (5851/19516)
+
+#Compare clustering method and plot heatmaps ###This takes forever, don't run, we don't need it here
+#compare_clustering_methods(mat, method = setdiff(all_clustering_methods(), "mclust"),
+#    plot_type = c("mixed", "heatmap"), nrow = 3, verbose = TRUE)
+
+```
+
+```{r}
+#comp_heat <- compare_clustering_methods(mat, plot_type = "heatmap")
+```
+
+
+I like binary_cut, louvain, kmeans and pam. I can try to run the simplification with these methods.
+Binary_cut is the fastest and gives the best matrix.
+```{r}
+Cluster_bincut <- simplifyGOFromMultipleLists(all_nnvGOs, padj_cutoff = 0.05, ont="BP", show_barplot = FALSE)
+```
+
+```{r}
+#simplifyGOFromMultipleLists(all_nnvGOs, padj_cutoff = 0.05, method = "louvain", ont="BP", show_barplot = FALSE)
+```
+
+```{r}
+simplifyGOFromMultipleLists(all_nnvGOs, padj_cutoff = 0.05, method = "kmeans", ont="BP", show_barplot = FALSE)
+```
+
+```{r}
+simplifyGOFromMultipleLists(all_nnvGOs, padj_cutoff = 0.05, method = "pam", ont="BP", show_barplot = FALSE, plot = FALSE)
+```
+
+
+GO_TERMS annotation description column!!
+```{r}
+go_id = rownames(mat)
+go_term = AnnotationDbi::select(GO.db::GO.db, keys = go_id, columns = "TERM")$TERM ##Check better into this output cause it could go in the "description" column of enrichedGOs
+
+GO_terms <- data.frame(go_id, go_term)
+GO_terms <- rename(GO_terms, ID=go_id)
+
+#join the terms into enrichedGOs
+enrichedGOs
+enrichedGOs_terms <- dplyr:::left_join(enrichedGOs, GO_terms, by="ID")
+enrichedGOs_terms <- select(enrichedGOs_terms, -Description)
+enrichedGOs_terms <- rename(enrichedGOs_terms, Description = go_term)
+```
+
+
+Merge the dataframe with the clusters (Cluster_bincut)
+```{r}
+#Then add the cluster to the enrichedGOs_clusters dataframe
+Cluster_bincut <- rename(Cluster_bincut, ID=id)
+enrichedGOs_clusters <-left_join(enrichedGOs_terms, Cluster_bincut, by = "ID")
+
+#And export the table
+write.table(enrichedGOs_clusters, file = "~/GitHub/Worms/Camallanus/data/GOclusters.csv")
+```
+
+How to save a PNG from Rmarkdown??
+```{r dev = "png"}
+SimplEnr_PNG<- simplifyGOFromMultipleLists(all_nnvGOs, padj_cutoff = 0.05, ont="BP", show_barplot = FALSE)
+```
+Now we have the clusters that we can rename with the keywords in the cloud, and go on with the functional comparison. In another script.
+
+
+#Heatmap representing the clustering based on semantic similarity and NES of each GO term in each condition.
+Here I tried to create a dendrogram clustering the GO terms by similarity. The idea was to create a heatmap in which the rows are the GO terms ordered as the dendrogram. The problem here is that if the order of the GO terms is shaped by the dendrogram (functional similarity) the patterns would not arise. (find a better way to explain this) 
+
+```{r}
+library(ggdendro)
+library(gtable)
+library(grid)
+library(gridExtra)
+library(dendextend)
+library(ComplexHeatmap)
+```
+
+Prepare the data:
+```{r}
+#I have to obtain a matrix with the column names that are the conditions, the rows that are the GO terms, and the values that are the NES.
+
+heatmat <- enrichedGOs %>% 
+  select(condition, NES, ID) %>% 
+  pivot_wider(names_from = condition, values_from = NES) %>% 
+  remove_rownames %>% 
+  column_to_rownames(var="ID")
+
+
+```
+
+Try normal heatmap:
+Here the order of the rows will be decided based on how similar the samples are in the NES. So there will be a pattern
+```{r}
+library(stats)
+stats::heatmap(heatmat, name = "NES", Rowc = NULL, ColV = NA)
+```
+
+Create dendrogram:
+```{r}
+dist <- dist(mat)
+hc <- hclust(dist, method = "ward.D2")
+
+dendro <- as.dendrogram(hc)
+
+dendro_data <- segment(dendro_data(dendro, type = "rectangle"))
+dendrogram <- ggplot(dendro_data)+
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend))+
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_reverse() +
+  coord_flip() +
+  theme(panel.border = element_blank()) +
+  theme_dendro()
+
+```
+
+
+Create the heatmap with the dendrogram:
+```{r}
+#I try to reduce the heatmat by the GO terms in mat
+matGOs <- row.names(mat)
+
+#filter heatmat for GO terms in mat only
+heatmat <- heatmat %>% 
+    filter(row.names(heatmat) %in% matGOs) %>% 
+  as.matrix()
+class(heatmat)
+
+#Now the two matrix should have the same length (and so with the dendrogram)
+heatmap(heatmat, name = "NES", Rowv = dendro, Colv = NULL)
+```
+If the order of the rows will follow the dendrogram based on functional similarity, the tiles will not cluster by NES.
+
+Didn't try with ggplot pasting the elements together.
+I'll go on on the clusters for now and then come back to this later.
+
+
+
+

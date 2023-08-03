@@ -1,0 +1,878 @@
+---
+title: "Cama_QA"
+author: "Laura Gramolini"
+date: '2023-06-26'
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+CLcountdf <- read.csv("~/GitHub/Worms/Camallanus/data/CLcountdf_new.csv", header = TRUE, sep = "")
+```
+
+```{r}
+# read data
+CLcolData <- read.csv("~/GitHub/Worms/Camallanus/data/CamaData.txt", header = TRUE, sep = "")
+```
+
+
+```{r}
+gc <- CLcountdf
+dim(gc)
+```
+
+```{r}
+# add gene name to data
+gc$gene <- row.names(gc)
+```
+
+# Filtering genes with low expression
+
+The data are in wide format with each column representing a sample and each row a gene. We will make the data long, so that each combination of gene and sample has its own row (i.e. all expression counts are in a single column).
+
+```{r}
+gc_long <- gc %>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "counts")
+
+gc_long <- gc_long %>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = gc_long$sample))
+```
+
+Here is the distribution of counts for every gene in every sample. In most samples in most genes, no expression is detectable. 
+
+```{r}
+ggplot(gc_long, aes(x = counts+.1)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10()
+```
+
+When we exclude the zeros (no expression), we see a bimodal distribution. In many genes in many samples, counts are low (peak at one) and probably just represent noise. The peak at higher values probably represents "real" expression, say greater than 10 counts per gene.
+
+```{r}
+ggplot(gc_long%>%filter(counts>0), aes(x = counts)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000, 10000))
+```
+
+
+The pattern is similar within each of our treatment groups. There is a fair amount of low-level expression that is probably just noise, and then from 10 counts or so there seems to be genuine expression. The separate lines are for the different samples. They show that the distribution of expression counts is similar across replicates.
+
+```{r}
+ggplot(gc_long, aes(x = counts)) +
+  geom_density(aes(group = sample), 
+               color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+We can take the median expression level for each gene in each condition and make the same plot. Clearly some of the low-level expression can be removed.
+
+```{r}
+gc_avg_by_condition <- gc_long%>%
+  group_by(grp, gene)%>%
+  summarise(median = median(counts),
+            min = min(counts))
+```
+```{r}
+ggplot(gc_avg_by_condition, aes(x = median)) +
+  geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+```{r}
+# for each gene take the maximum median expression level for any given condition
+gc_max_exp_in_at_least_cond <- gc_avg_by_condition%>%
+  group_by(gene)%>%
+  summarise(max_med_count = max(median))
+
+# ggplot(gc_max_exp_in_at_least_cond, aes(x = max_med_count)) +
+#   geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+#   scale_x_log10(breaks = c(1, 10, 100, 1000))
+```
+
+As an arbitrary threshold, we will remove genes that do not have a median expression level of at least 10 counts in at least one condition.
+
+```{r}
+low_genes <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+```
+
+Here is the percent of genes removed.
+
+```{r}
+round(length(low_genes)/length(gc$gene), 3)
+```
+
+Doubling the threshold for expression counts (20) only removes a few percent more.
+
+```{r}
+low_genes20 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 20)%>%.$gene
+round(length(low_genes20)/length(gc$gene), 3)
+```
+
+Similarly halving the threshold (5) would only add a few percent of the genes back into the analysis.
+
+```{r}
+low_genes5 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 5)%>%.$gene
+round(length(low_genes5)/length(gc$gene), 3)
+```
+
+Specifically, it would add this many genes back into the analysis:
+
+```{r}
+length(low_genes)-length(low_genes5)
+#rm(low_genes20, low_genes5)
+```
+
+```{r}
+low_genes500 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 500)%>%.$gene
+round(length(low_genes500)/length(gc$gene), 3)
+```
+
+
+
+```{r}
+#rm(gc, gc_avg_by_condition, gc_long, gc_max_exp_in_at_least_cond)
+CLcountdf <- CLcountdf[!row.names(CLcountdf) %in% low_genes500,] # just expressed genes
+```
+
+
+
+We load here the count matrix for Quality assesment
+
+
+
+```{r}
+ggplot(CLcountdf) +
+  geom_histogram(aes(x = ConditionB1.bam), stat = "bin", bins = 200) +
+  xlab("Raw expression counts") +
+  ylab("Number of genes")+
+  scale_x_log10()
+
+```
+We create another table with genes, sample and count as columns (pivot)
+
+```{r}
+ggplot(CLcountdf%>%filter(ConditionG1.bam > 10)) +
+  geom_histogram(aes(x = ConditionG1.bam), stat = "bin", bins = 200) +
+  xlab("Raw expression counts") +
+  ylab("Number of genes")+
+  scale_x_log10()
+```
+
+
+Remove the .bam
+```{r}
+colnames(CamaFCounts$counts) <- sub(".bam", "", colnames(CamaFCounts$counts))
+head(CamaFCounts$counts)
+```
+
+
+And Now I can start loading the data in DEseq2 but first let's check:
+
+
+Loading the tables in DEseq2
+```{r}
+str(CLcolData)
+CLcolData$Host <- as.factor(CLcolData$Host)
+CLcolData$Unique_name <- row.names(CLcolData)
+CLcolData$Unique_name <- as.factor(CLcolData$Unique_name)
+row.names(CLcolData) <- NULL
+CLcolData$Stage <- as.factor(CLcolData$Stage)
+CLcolData$Condition <- as.factor(CLcolData$Condition)
+CLcolData$Sex <- as.factor(CLcolData$Sex)
+CLcolData$Dual.seq <- as.factor(CLcolData$Dual.seq)
+
+CLDEseq <- DESeqDataSetFromMatrix(
+  countData = CLcountdf,
+  colData = CLcolData,
+  design = ~1)
+```
+I've put no design and no ref level here, cause I just want to check the data in the following steps
+
+
+Let's remove the genes that are counted less than 10 times in all the samples
+For now ok, but then decide the threshold base on a reason, why 10? why 20? For the sum of the samples? At least how many? Make several try. Always do things that you can justify
+```{r}
+keep <- rowSums(counts(CLDEseq)) >= 50
+CLDEseq <- CLDEseq[keep,]
+```
+
+
+Let's plot sd vS mean of each gene to see if the range of variance is the same at different ranges of mean, so to see if they are homoskedastic:
+```{r}
+lambda <- 10^seq(from = -1, to = 2, length = 1000) ###here, Poisson counts with a range of lambda from 0.1 to 100
+CLmatrix <- matrix(rpois(1000*100, lambda), ncol = 100)
+library("vsn")
+meanSdPlot(CLmatrix, ranks = TRUE)
+```
+
+They are not, and this is normal for RNA-seq data, cause lowly expressed genes will have a low range of variance, and this will reflect on the PCA or other exploratory analysis, so we need to transform the data:
+I'm gonna apply the vst transformation cause I have more tha 50 samples and because is faster...
+And I will run it blind so the variance doesn't get overestimated by the sample size
+(look into it)
+```{r}
+CLDEseqvst <- vst(CLDEseq, blind = TRUE)
+head(assay(CLDEseqvst), 3)
+```
+
+Let's see how it looks now
+```{r}
+meanSdPlot(assay(CLDEseqvst), rank=TRUE)
+```
+
+And plotting 2 random genes:
+```{r}
+CLvstdf <- as_data_frame(assay(CLDEseqvst)[, 1:2]) %>% mutate(transformation = "vst")
+colnames(CLvstdf)[1:2] <- c("x", "y") 
+lvls <- c("vst")
+CLvstdf$transformation <- factor(CLvstdf$transformation, levels = lvls)
+ggplot(CLvstdf, aes(x=x, y=y))+geom_hex(bins=80)+
+  coord_fixed()
+```
+
+Let's calculate the distance matrix between samples and plot it to have an idea of the grouping:
+```{r}
+CLDist <- dist(t(assay(CLDEseqvst)))
+```
+
+With an heatmap for example:
+```{r}
+library("pheatmap")
+library("RColorBrewer")
+CLDistM <- as.matrix(CLDist )
+rownames(CLDistM) <- paste(CLcolData$Condition)
+colnames(CLDistM) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(CLDist,
+         clustering_distance_rows = CLDist,
+         clustering_distance_cols = CLDist,
+         col = colors)
+```
+
+We would need an indication of what they are ... like names, but it's easier just look at the PCA:
+```{r}
+plotPCA(CLDEseqvst, intgroup=("Condition"))
+```
+
+Let's check more details on the samples:
+```{r}
+CLPCAdata <- plotPCA(CLDEseqvst, intgroup=c("Host", "Stage"), returnData=TRUE) ##ReturnData means do not plot but return them
+CLpercentVar <- round(100*attr(CLPCAdata, "CLpercentVar")) ####Why is this empty?
+ggplot(CLPCAdata, aes(PC1, PC2, color=Stage, shape=Host))+
+  geom_point(size=3)+
+  xlab(paste0("PC1: ", CLpercentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", CLpercentVar[2], "% variance")) +
+  coord_fixed()
+```
+
+Let's make it nice for the poster:
+```{r}
+CLPCAdata <- plotPCA(CLDEseqvst, intgroup=c("Host", "Stage"), returnData=TRUE) ##ReturnData means do not plot but return them
+
+CLntop=500
+  CLv <- rowVars(assay(CLDEseqvst))
+  CLselect <- order(CLv, decreasing = TRUE)[seq_len(min(CLntop,
+                                                     length(CLv)))]
+ ############## SSpca <- prcomp(t(assay(SSDEseqvst)[SSselect, ])) ###This is not necessary if I use SSPCAdata. Are these equivalent? I think so
+  
+  CLpercentVar <- CLPCAdata$sdev^2/sum(CLPCAdata$sdev^2)
+  CLpercentVar <- round(CLpercentVar[1:2]*100,0)
+
+  
+CLpcaplot <- ggplot(CLPCAdata, aes(PC1, PC2, color=Stage, shape=Host))+
+  geom_point(size=5)+
+  xlab(paste0("PC1: ", CLpercentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", CLpercentVar[2], "% variance")) +
+  scale_shape_manual(values = c("Copepod" = 15, 
+                                "Free" = 17, 
+                                "Stickleback" = 16,
+                                "Perch" = 4)) +
+  scale_color_manual(values = c("Growing" = "gray0",
+                                "Infecting"= "firebrick",
+                                "Reproducing"= "goldenrod3",
+                                "Transmission" = "darkgreen",
+                                "Reproducing female" = "cyan4")) +
+  coord_fixed()+
+  theme_bw()+
+  theme(text = element_text(size = 15))+
+  theme(panel.grid = element_blank(), panel.border = element_blank(), axis.line=element_line(), panel.background = element_rect(fill="transparent"), plot.background = element_rect(fill = "transparent"), legend.background = element_rect("transparent"), legend.key = element_rect(fill="transparent"))
+
+############To save the pics:
+#tiff(filename = "SSpca.tiff", width = 5, height = 4, units = "in", res = 1200, compression ="lzw")+
+#png(filename = "SSpca.png", width = 5, height = 4, units = "in", res = 1200)  
+
+#Or
+#ggsave(SSpcaplot, 
+#       filename = "SSpca.png",
+#       bg = "transparent")
+#But this doesn't allow to customize the resolution  
+```
+Why is it going the NA ?
+
+Multi-dimensional-scaling MDS:
+```{r}
+SSmds <-as.data.frame(colData(SSDEseqvst))  %>%
+         cbind(cmdscale(SSDistM))
+ggplot(SSmds, aes(x = `1`, y = `2`, color = Stage, shape = Host, size=Pop)) +
+  geom_point() + coord_fixed() + ggtitle("MDS with vst data")
+
+```
+
+To visualize some heatmap as additional explorative analysis:
+```{r}
+library("genefilter")
+SStopvargenes <- head(order(rowVars(assay(SSDEseqvst)), decreasing = TRUE), 10) ##Select the 10 genes that bring more variance
+SSmat <- assay(SSDEseqvst)[SStopvargenes, ]
+SSmat <- SSmat - rowMeans(SSmat)
+SS20genes <- as.data.frame(colData(SSDEseqvst)[,c("Stage", "Host")]) ##I can play with this filtering out the other pop and the samples from Hebert to see how it changes
+pheatmap(SSmat, annotation_col = SS20genes)
+```
+
+
+#################################END OF VISUALIZATION/QUALITY CHECKS for all the samples #########################################
+
+##Here I try with only the pure Camallanus samples
+
+Load new count matrix, but not here cause I replaced the object already
+```{r} 
+"~/GitHub/Worms/Camallanus/data/CLcountdf_single.csv"
+```
+
+Load new coldata
+```{r}
+CLcolData <- read.csv("~/GitHub/Worms/Camallanus/data/Colcama.txt", header = TRUE, sep = "")
+```
+
+
+
+```{r}
+gc <- CLcountdf
+dim(gc)
+```
+
+```{r}
+# add gene name to data
+gc$gene <- row.names(gc)
+```
+
+# Filtering genes with low expression
+
+The data are in wide format with each column representing a sample and each row a gene. We will make the data long, so that each combination of gene and sample has its own row (i.e. all expression counts are in a single column).
+
+```{r}
+gc_long <- gc%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "counts")
+
+gc_long <- gc_long%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = gc_long$sample))
+```
+
+Here is the distribution of counts for every gene in every sample. In most samples in most genes, no expression is detectable. 
+
+```{r}
+ggplot(gc_long, aes(x = counts+.1)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10()
+```
+
+When we exclude the zeros (no expression), we see a bimodal distribution. In many genes in many samples, counts are low (peak at one) and probably just represent noise. The peak at higher values probably represents "real" expression, say greater than 10 counts per gene.
+
+```{r}
+ggplot(gc_long%>%filter(counts>0), aes(x = counts)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000, 10000))
+```
+
+
+The pattern is similar within each of our treatment groups. There is a fair amount of low-level expression that is probably just noise, and then from 10 counts or so there seems to be genuine expression. The separate lines are for the different samples. They show that the distribution of expression counts is similar across replicates.
+
+```{r}
+ggplot(gc_long, aes(x = counts)) +
+  geom_density(aes(group = sample), 
+               color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+We can take the median expression level for each gene in each condition and make the same plot. Clearly some of the low-level expression can be removed.
+
+```{r}
+gc_avg_by_condition <- gc_long%>%
+  group_by(grp, gene)%>%
+  summarise(median = median(counts),
+            min = min(counts))
+```
+```{r}
+ggplot(gc_avg_by_condition, aes(x = median)) +
+  geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+```{r}
+# for each gene take the maximum median expression level for any given condition
+gc_max_exp_in_at_least_cond <- gc_avg_by_condition%>%
+  group_by(gene)%>%
+  summarise(max_med_count = max(median))
+
+# ggplot(gc_max_exp_in_at_least_cond, aes(x = max_med_count)) +
+#   geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+#   scale_x_log10(breaks = c(1, 10, 100, 1000))
+```
+
+As an arbitrary threshold, we will remove genes that do not have a median expression level of at least 10 counts in at least one condition.
+
+```{r}
+low_genes <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+```
+
+Here is the percent of genes removed.
+
+```{r}
+round(length(low_genes)/length(gc$gene), 3)
+```
+
+Doubling the threshold for expression counts (20) only removes a few percent more.
+
+```{r}
+low_genes20 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 20)%>%.$gene
+round(length(low_genes20)/length(gc$gene), 3)
+```
+
+Similarly halving the threshold (5) would only add a few percent of the genes back into the analysis.
+
+```{r}
+low_genes5 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 5)%>%.$gene
+round(length(low_genes5)/length(gc$gene), 3)
+```
+
+Specifically, it would add this many genes back into the analysis:
+
+```{r}
+length(low_genes)-length(low_genes5)
+#rm(low_genes20, low_genes5)
+```
+
+```{r}
+low_genes10 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+round(length(low_genes10)/length(gc$gene), 3)
+```
+
+
+
+```{r}
+#rm(gc, gc_avg_by_condition, gc_long, gc_max_exp_in_at_least_cond)
+CLcountdf <- CLcountdf[!row.names(CLcountdf) %in% low_genes10,] # just expressed genes
+```
+
+Remove the .bam
+```{r}
+colnames(CLcountdf) <- sub(".bam", "", colnames(CLcountdf))
+head(CamaFCounts$counts)
+```
+
+
+And Now I can start loading the data in DEseq2 but first let's check:
+
+
+Loading the tables in DEseq2
+```{r}
+str(CLcolData)
+CLcolData$Host <- as.factor(CLcolData$Host)
+CLcolData$Unique_name <- row.names(CLcolData)
+CLcolData$Unique_name <- as.factor(CLcolData$Unique_name)
+row.names(CLcolData) <- NULL
+CLcolData$Stage <- as.factor(CLcolData$Stage)
+CLcolData$Condition <- as.factor(CLcolData$Condition)
+CLcolData$Sex <- as.factor(CLcolData$Sex)
+CLcolData$Dual.seq <- as.factor(CLcolData$Dual.seq)
+
+CLDEseq <- DESeqDataSetFromMatrix(
+  countData = CLcountdf,
+  colData = CLcolData,
+  design = ~1)
+```
+I've put no design and no ref level here, cause I just want to check the data in the following steps
+
+
+Let's remove the genes that are counted less than 10 times in all the samples
+For now ok, but then decide the threshold base on a reason, why 10? why 20? For the sum of the samples? At least how many? Make several try. Always do things that you can justify
+```{r}
+keep <- rowSums(counts(CLDEseq)) >= 10
+CLDEseq <- CLDEseq[keep,]
+```
+
+
+Let's plot sd vS mean of each gene to see if the range of variance is the same at different ranges of mean, so to see if they are homoskedastic:
+```{r}
+lambda <- 10^seq(from = -1, to = 2, length = 1000) ###here, Poisson counts with a range of lambda from 0.1 to 100
+CLmatrix <- matrix(rpois(1000*100, lambda), ncol = 100)
+library("vsn")
+meanSdPlot(CLmatrix, ranks = TRUE)
+```
+
+They are not, and this is normal for RNA-seq data, cause lowly expressed genes will have a low range of variance, and this will reflect on the PCA or other exploratory analysis, so we need to transform the data:
+I'm gonna apply the vst transformation cause I have more tha 50 samples and because is faster...
+And I will run it blind so the variance doesn't get overestimated by the sample size
+(look into it)
+```{r}
+CLDEseqvst <- vst(CLDEseq, blind = TRUE)
+head(assay(CLDEseqvst), 3)
+```
+
+Let's see how it looks now
+```{r}
+meanSdPlot(assay(CLDEseqvst), rank=TRUE)
+```
+
+And plotting 2 random genes:
+```{r}
+CLvstdf <- as_data_frame(assay(CLDEseqvst)[, 1:2]) %>% mutate(transformation = "vst")
+colnames(CLvstdf)[1:2] <- c("x", "y") 
+lvls <- c("vst")
+CLvstdf$transformation <- factor(CLvstdf$transformation, levels = lvls)
+ggplot(CLvstdf, aes(x=x, y=y))+geom_hex(bins=80)+
+  coord_fixed()
+```
+
+Let's calculate the distance matrix between samples and plot it to have an idea of the grouping:
+```{r}
+CLDist <- dist(t(assay(CLDEseqvst)))
+```
+
+With an heatmap for example:
+```{r}
+library("pheatmap")
+library("RColorBrewer")
+CLDistM <- as.matrix(CLDist )
+rownames(CLDistM) <- paste(CLcolData$Condition)
+colnames(CLDistM) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(CLDist,
+         clustering_distance_rows = CLDist,
+         clustering_distance_cols = CLDist,
+         col = colors)
+```
+
+We would need an indication of what they are ... like names, but it's easier just look at the PCA:
+```{r}
+plotPCA(CLDEseqvst, intgroup=("Condition"))
+```
+
+
+
+```{r}
+
+CLPCAdata <- plotPCA(CLDEseqvst, intgroup=c("Host", "Stage", "Sex"), returnData=TRUE)
+CLpercentVar <- round(100*attr(CLPCAdata, "percentVar"))
+
+CLPCAdata$condition <- paste(CLPCAdata$Stage, CLPCAdata$Sex, sep = "_")
+CLPCAdata$condition <- sub("_ND", "", CLPCAdata$condition)
+
+##Change name to the condition
+
+CLpcaplot <- ggplot(CLPCAdata, aes(PC1, PC2, color=condition, shape=Host))+
+  geom_point(size=5)+
+  xlab(paste0("PC1: ", CLpercentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", CLpercentVar[2], "% variance")) +
+  scale_shape_manual(values = c("Free" = 17, 
+                                "Stickleback" = 16,
+                                "Perch" = 15)) +
+  scale_color_manual(values = c("Growing" = "gray0",
+                                "Infecting"= "firebrick",
+                                "Transmission" = "goldenrod3",
+                                "Reproducing_Females" = "cyan4",
+                                "Reproducing_Males" = "darkgreen")) +
+  coord_fixed()+
+  theme_bw()+
+  theme(text = element_text(size = 15))+
+  theme(panel.grid = element_blank(), panel.border = element_blank(), axis.line=element_line(), panel.background = element_rect(fill="transparent"), plot.background = element_rect(fill = "transparent"), legend.background = element_rect("transparent"), legend.key = element_rect(fill="transparent"))
+```
+
+```{r}
+##Already saved don't run
+#ggsave(CLpcaplot, 
+ #   filename = "~/GitHub/Worms/Camallanus/data/CLpca.png",
+#   bg = "transparent")
+```
+
+
+
+
+
+
+
+
+
+
+
+##The definitive dataset##
+#####Pure samples but allowing multimapping#################################
+
+Load multimapping
+```{r}
+CLcountdf_pumu <- read.csv("~/GitHub/Worms/Camallanus/data/CLcountdf_pumu.csv", header = TRUE, sep = "")
+```
+
+
+Load new coldata
+```{r}
+CLcolData <- read.csv("~/GitHub/Worms/Camallanus/data/Colcama.txt", header = TRUE, sep = "")
+```
+
+
+
+```{r}
+gc <- CLcountdf_pumu
+dim(gc)
+```
+
+```{r}
+# add gene name to data
+gc$gene <- row.names(gc)
+```
+
+# Filtering genes with low expression
+
+The data are in wide format with each column representing a sample and each row a gene. We will make the data long, so that each combination of gene and sample has its own row (i.e. all expression counts are in a single column).
+
+```{r}
+gc_long <- gc%>%
+  pivot_longer(cols = starts_with("Condition"), names_to = "sample", values_to = "counts")
+
+gc_long <- gc_long%>%
+  mutate(grp = gsub(pattern = "[:0-9:]", "", x = gc_long$sample))
+```
+
+Here is the distribution of counts for every gene in every sample. In most samples in most genes, no expression is detectable. 
+
+```{r}
+ggplot(gc_long, aes(x = counts+.1)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10()
+```
+
+
+
+```{r}
+ggplot(gc_long%>%filter(counts>0), aes(x = counts)) +
+  geom_histogram(bins = 60) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000, 10000))
+```
+
+
+
+```{r}
+ggplot(gc_long, aes(x = counts)) +
+  geom_density(aes(group = sample), 
+               color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+
+```{r}
+gc_avg_by_condition <- gc_long%>%
+  group_by(grp, gene)%>%
+  summarise(median = median(counts),
+            min = min(counts))
+```
+```{r}
+ggplot(gc_avg_by_condition, aes(x = median)) +
+  geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+  scale_x_log10(breaks = c(1, 10, 100, 1000)) +
+  facet_wrap(~grp)
+```
+
+```{r}
+# for each gene take the maximum median expression level for any given condition
+gc_max_exp_in_at_least_cond <- gc_avg_by_condition%>%
+  group_by(gene)%>%
+  summarise(max_med_count = max(median))
+
+# ggplot(gc_max_exp_in_at_least_cond, aes(x = max_med_count)) +
+#   geom_density(color = "gray", fill = "pink", alpha = 0.1) +
+#   scale_x_log10(breaks = c(1, 10, 100, 1000))
+```
+
+As an arbitrary threshold, we will remove genes that do not have a median expression level of at least 10 counts in at least one condition.
+
+```{r}
+low_genes <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+```
+
+
+Here is the percent of genes removed.
+
+```{r}
+round(length(low_genes)/length(gc$gene), 3)
+```
+
+Doubling the threshold for expression counts (20) only removes a few percent more.
+
+```{r}
+low_genes20 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 20)%>%.$gene
+round(length(low_genes20)/length(gc$gene), 3)
+```
+
+Similarly halving the threshold (5) would only add a few percent of the genes back into the analysis.
+
+```{r}
+low_genes5 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 5)%>%.$gene
+round(length(low_genes5)/length(gc$gene), 3)
+```
+
+Specifically, it would add this many genes back into the analysis:
+
+```{r}
+length(low_genes)-length(low_genes5)
+#rm(low_genes20, low_genes5)
+```
+
+```{r}
+low_genes10 <- gc_max_exp_in_at_least_cond%>%
+  filter(max_med_count < 10)%>%.$gene
+round(length(low_genes10)/length(gc$gene), 3)
+```
+
+
+
+```{r}
+#rm(gc, gc_avg_by_condition, gc_long, gc_max_exp_in_at_least_cond)
+CLcountdf_pumu <- CLcountdf_pumu[!row.names(CLcountdf_pumu) %in% low_genes10,] # just expressed genes
+```
+
+
+##And Now I can start loading the data in DEseq2 but first let's check:
+
+
+Loading the tables in DEseq2
+```{r}
+str(CLcolData)
+CLcolData$Host <- as.factor(CLcolData$Host)
+CLcolData$Unique_name <- row.names(CLcolData)
+CLcolData$Unique_name <- as.factor(CLcolData$Unique_name)
+row.names(CLcolData) <- NULL
+CLcolData$Stage <- as.factor(CLcolData$Stage)
+CLcolData$Condition <- as.factor(CLcolData$Condition)
+CLcolData$Sex <- as.factor(CLcolData$Sex)
+CLcolData$Dual.seq <- as.factor(CLcolData$Dual.seq)
+
+CLDEseq <- DESeqDataSetFromMatrix(
+  countData = CamaFCounts_puremulti$counts,
+  colData = CLcolData,
+  design = ~1)
+```
+I've put no design and no ref level here, cause I just want to check the data in the following steps
+
+
+
+```{r}
+keep <- rowSums(counts(CLDEseq)) >= 10
+CLDEseq <- CLDEseq[keep,]
+```
+
+
+Let's plot sd vS mean of each gene to see if the range of variance is the same at different ranges of mean, so to see if they are homoskedastic:
+```{r}
+lambda <- 10^seq(from = -1, to = 2, length = 1000) ###here, Poisson counts with a range of lambda from 0.1 to 100
+CLmatrix <- matrix(rpois(1000*100, lambda), ncol = 100)
+library("vsn")
+meanSdPlot(CLmatrix, ranks = TRUE)
+```
+
+They are not, and this is normal for RNA-seq data, cause lowly expressed genes will have a low range of variance, and this will reflect on the PCA or other exploratory analysis, so we need to transform the data:
+I'm gonna apply the vst transformation cause I have more than 50 samples and because it is faster...
+And I will run it blind so the variance doesn't get overestimated by the sample size
+(look into it)
+```{r}
+CLDEseqvst <- vst(CLDEseq, blind = TRUE)
+head(assay(CLDEseqvst), 3)
+```
+
+Let's see how it looks now
+```{r}
+meanSdPlot(assay(CLDEseqvst), rank=TRUE)
+```
+
+And plotting 2 random genes:
+```{r}
+CLvstdf <- as_data_frame(assay(CLDEseqvst)[, 1:2]) %>% mutate(transformation = "vst")
+colnames(CLvstdf)[1:2] <- c("x", "y") 
+lvls <- c("vst")
+CLvstdf$transformation <- factor(CLvstdf$transformation, levels = lvls)
+ggplot(CLvstdf, aes(x=x, y=y))+geom_hex(bins=80)+
+  coord_fixed()
+```
+
+Let's calculate the distance matrix between samples and plot it to have an idea of the grouping:
+```{r}
+CLDist <- dist(t(assay(CLDEseqvst)))
+```
+
+With an heatmap for example:
+```{r}
+library("pheatmap")
+library("RColorBrewer")
+CLDistM <- as.matrix(CLDist )
+rownames(CLDistM) <- paste(CLcolData$Condition)
+colnames(CLDistM) <- NULL
+colors <- colorRampPalette( rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(CLDist,
+         clustering_distance_rows = CLDist,
+         clustering_distance_cols = CLDist,
+         col = colors)
+```
+
+We would need an indication of what they are ... like names, but it's easier just look at the PCA:
+```{r}
+plotPCA(CLDEseqvst, intgroup=("Condition"))
+```
+
+```{r}
+
+CLPCAdata <- plotPCA(CLDEseqvst, intgroup=c("Host", "Stage", "Sex"), returnData=TRUE)
+CLpercentVar <- round(100*attr(CLPCAdata, "percentVar"))
+
+CLPCAdata$Condition <- paste(CLPCAdata$Stage, CLPCAdata$Sex, sep = "_")
+CLPCAdata$Condition <- sub("_ND", "", CLPCAdata$Condition)
+
+##Change name to the condition
+
+CLpcaplot <- ggplot(CLPCAdata, aes(PC1, PC2, color=Condition, shape=Host))+
+  geom_point(size=5)+
+  xlab(paste0("PC1: ", CLpercentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", CLpercentVar[2], "% variance")) +
+  scale_shape_manual(values = c("Free" = 17, 
+                                "Stickleback" = 16,
+                                "Perch" = 15)) +
+  scale_color_manual(values = c("Growing" = "gray0",
+                                "Infecting"= "firebrick",
+                                "Transmission" = "goldenrod3",
+                                "Reproducing_Females" = "cyan4",
+                                "Reproducing_Males" = "darkgreen")) +
+  coord_fixed()+
+  theme_bw()+
+  theme(text = element_text(size = 15))+
+  theme(panel.grid = element_blank(), panel.border = element_blank(), axis.line=element_line(), panel.background = element_rect(fill="transparent"), plot.background = element_rect(fill = "transparent"), legend.background = element_rect("transparent"), legend.key = element_rect(fill="transparent"))
+```
+
+```{r}
+ggsave(CLpcaplot, 
+    filename = "~/GitHub/Worms/Camallanus/data/CLpca_multi_def.png",
+   bg = "transparent")
+```
+
