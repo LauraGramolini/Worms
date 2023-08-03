@@ -166,7 +166,7 @@ For every pairwise combination of parasite stages and for every GO-term, I calcu
 
 Then, I plot the distribution of the gene-level correlations for the GO-terms.
 
-# A vs B
+# A vs B: Free larva and infecting copepod
 
 ```{r}
 grp1 <- "A"
@@ -195,7 +195,29 @@ grp2 <- "B"
 make_density_plot_for_condition_pairs(GOs_nestedAB, grp1, grp2)
 ```
 
-# A vs C
+```{r}
+GOs_nestedAB%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+```{r}
+make_df_for_one_GO_term("GO:0004386", "A", "B")%>%
+    ggplot(.,
+       aes(x = A, y = B,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+# A vs C: free larva and growing in copepod
 
 ```{r}
 grp1 <- "A"
@@ -209,6 +231,7 @@ GOs_nestedAC <- GOs_nested%>%
   mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
   select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
 ```
+
 ```{r}
 grp1 <- "A"
 grp2 <- "C"
@@ -228,7 +251,8 @@ make_density_plot_for_condition_pairs(GOs_nestedAC, grp1, grp2)
 #   facet_wrap( ~ NES_direction) +
 #   theme_bw()
 ```
-# A vs H
+
+# A vs H: Free larva and transmission in sticklebacks. Same function, different host
 
 ```{r}
 grp1 <- "A"
@@ -250,7 +274,7 @@ make_density_plot_for_condition_pairs(GOs_nestedAH%>%filter(!is.na(NES_direction
 ```
 
 
-# C vs F
+# C vs F: Growing in the copepod and in the fish. Same function, different hosts
 
 ```{r}
 grp1 <- "C"
@@ -284,6 +308,8 @@ GOs_nestedCF%>%
          sig_grp %in% c("both stages", "one stage"), 
          gene_set_n > 50)%>%
   arrange(sig_grp, go_cor)
+
+
 ```
 
 
@@ -327,7 +353,23 @@ make_df_for_one_GO_term("GO:0001501", "C", "F")%>%
     theme_bw()
 ```
 
-GO term is: glycoprotein biosynthetic process
+GO term is: skeletal system morphogenesis
+
+```{r}
+make_df_for_one_GO_term("GO:0048705", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+GO term is: glycoprotein biosynthetic process (one stage - same direction)
 
 ```{r}
 make_df_for_one_GO_term("GO:0009101", "C", "F")%>%
@@ -342,6 +384,8 @@ make_df_for_one_GO_term("GO:0009101", "C", "F")%>%
     theme_bw()
 ```
 
+Ordered by higher go_corr
+
 ```{r}
 GOs_nestedCF%>%
   filter(NES_direction=="same dir",
@@ -350,7 +394,7 @@ GOs_nestedCF%>%
   arrange(sig_grp, desc(go_cor))
 ```
 
-GO: Dynein chain binding
+GO: Dynein chain binding (positive correlation but enriched in one stage, decoupled)
 ```{r}
 make_df_for_one_GO_term("GO:0045505", "C", "F")%>%
     ggplot(.,
@@ -374,7 +418,7 @@ GOs_nestedCF%>%
   arrange(sig_grp, (go_cor))
 ```
 
-GO term is: protein autophosphorylation
+GO term is: protein autophosphorylation (diff direction - Both stages)
 
 ```{r}
 make_df_for_one_GO_term("GO:0046777", "C", "F")%>%
@@ -389,7 +433,7 @@ make_df_for_one_GO_term("GO:0046777", "C", "F")%>%
     theme_bw()
 ```
 
-GO term is: glycosyltransferase activity
+GO term is: glycosyltransferase activity (diff direction - One stage)
 
 ```{r}
 make_df_for_one_GO_term("GO:0016757", "C", "F")%>%
@@ -404,6 +448,8 @@ make_df_for_one_GO_term("GO:0016757", "C", "F")%>%
     theme_bw()
 ```
 
+
+##I'm not sure about this
 Enriched in different directions but positive correlation: coupled!
 
 ```{r}
@@ -414,7 +460,9 @@ GOs_nestedCF%>%
   arrange(sig_grp, desc(go_cor))
 ```
 
-GO term: microtubule associated complex
+But there aren't! The ones positive correlated are the ones enriched in only one stage!
+
+GO term: microtubule associated complex (one stage - diff direction)
 
 ```{r}
 make_df_for_one_GO_term("GO:0005875", "C", "F")%>%
@@ -431,7 +479,23 @@ make_df_for_one_GO_term("GO:0005875", "C", "F")%>%
 
 
 
-# F vs G
+```{r}
+make_df_for_one_GO_term("GO:0051169", "C", "F")%>%
+    ggplot(.,
+       aes(x = C, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+
+
+# F vs G: Growing and growing transmission in the fish
 
 ```{r}
 grp1 <- "F"
@@ -445,12 +509,13 @@ GOs_nestedFG <- GOs_nested%>%
   mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
   select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
 ```
+
 ```{r}
 make_density_plot_for_condition_pairs(GOs_nestedFG, grp1, grp2)
 ```
 
 
-# F vs L
+# F vs L: Growing in fish vs reproducing
 
 ```{r}
 grp1 <- "F"
@@ -470,7 +535,7 @@ make_density_plot_for_condition_pairs(GOs_nestedFL%>%filter(!is.na(NES_direction
 
 
 
-# D vs H
+# D vs H: Transmission stages in copepod and stickleback. Same functions, different hosts
 
 ```{r}
 grp1 <- "D"
@@ -484,12 +549,14 @@ GOs_nestedDH <- GOs_nested%>%
   mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
   select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
 ```
+
 ```{r}
 make_density_plot_for_condition_pairs(GOs_nestedDH, grp1, grp2)
 ```
+There are no GO terms enriched for both stages? So completely different GO terms are enriched. Probably different functions are relevant?
+The GO terms enriched for one or the other stage are also encoded by negative correlated genes. 
 
-
-# E vs I
+# E vs I: Infecting in stickleback and bird. Same function, different hosts
 
 ```{r}
 grp1 <- "E"
@@ -503,8 +570,18 @@ GOs_nestedEI <- GOs_nested%>%
   mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
   select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
 ```
+
 ```{r}
 make_density_plot_for_condition_pairs(GOs_nestedEI, grp1, grp2)
+```
+Same GO terms enriched in different directions and negative correlated
+
+```{r}
+GOs_nestedEI%>%
+  filter(NES_direction=="diff dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, desc(go_cor))
 ```
 
 
@@ -512,5 +589,1018 @@ make_density_plot_for_condition_pairs(GOs_nestedEI, grp1, grp2)
 
 
 
+```{r}
+grp1 <- "E"
+grp2 <- "B"
+
+GOs_nestedEB <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedd d d EB, grp1, grp2)
+```
+
+
+
+```{r}
+GOs_nestedEB %>% 
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+```{r}
+grp1 <- "B"
+grp2 <- "I"
+
+GOs_nestedBI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBI, grp1, grp2)
+```
+
+
+
+```{r}
+GOs_nestedBI %>% 
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+GO term is: cilium organization
+
+```{r}
+make_df_for_one_GO_term("GO:0044782", "B", "I")%>%
+    ggplot(.,
+       aes(x = B, y = I,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+GO term is: intraciliary transport
+
+```{r}
+make_df_for_one_GO_term("GO:0042073", "B", "I")%>%
+    ggplot(.,
+       aes(x = B, y = I,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: cilium assembly
+
+```{r}
+make_df_for_one_GO_term("GO:0060271", "B", "I")%>%
+    ggplot(.,
+       aes(x = B, y = I,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+```{r}
+grp1 <- "C"
+grp2 <- "G"
+
+GOs_nestedCG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+
+GOs_nestedCG <- na.omit(GOs_nestedCG)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedCG, grp1, grp2)
+```
+
+```{r}
+GOs_nestedCG %>% 
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+```{r}
+grp1 <- "D"
+grp2 <- "G"
+
+GOs_nestedDG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedDG, grp1, grp2)
+```
+No GO terms are enriched in both the conditions
+
+```{r}
+grp1 <- "G"
+grp2 <- "H"
+
+GOs_nestedGH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedGH, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "A"
+grp2 <- "D"
+
+GOs_nestedAD <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedAD, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "A"
+grp2 <- "G"
+
+GOs_nestedAG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedAG, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "D"
+grp2 <- "E"
+
+GOs_nestedDE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedDE, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "A"
+grp2 <- "E"
+
+GOs_nestedAE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+GOs_nestedAE %>% 
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedAE, grp1, grp2)
+```
+
+```{r}
+grp1 <- "A"
+grp2 <- "F"
+
+GOs_nestedAF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedAF, grp1, grp2)
+```
+
+```{r}
+grp1 <- "A"
+grp2 <- "I"
+
+GOs_nestedAI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedAI, grp1, grp2)
+```
+```{r}
+GOs_nestedAI%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+GO term is: intraciliary transport
+
+```{r}
+make_df_for_one_GO_term("GO:0042073", "A", "I")%>%
+    ggplot(.,
+       aes(x = A, y = I,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO terms is: vesicle organization
+
+```{r}
+make_df_for_one_GO_term("GO:0016050", "A", "I")%>%
+    ggplot(.,
+       aes(x = A, y = I,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: vesicle localization
+
+```{r}
+make_df_for_one_GO_term("GO:0051648", "A", "I")%>%
+    ggplot(.,
+       aes(x = A, y = I,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+In this case, the 3 GO terms enriched in both the stages in the same direction, are either slightly negative correlated or not correlated. The overall correlation is negative
+
+
+```{r}
+grp1 <- "A"
+grp2 <- "L"
+
+GOs_nestedAL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedAL, grp1, grp2)
+```
+
+```{r}
+grp1 <- "B"
+grp2 <- "C"
+
+GOs_nestedBC <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBC, grp1, grp2)
+```
+
+```{r}
+grp1 <- "B"
+grp2 <- "D"
+
+GOs_nestedBD <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBD, grp1, grp2)
+```
+
+
+```{r}
+GOs_nestedBD%>%
+  filter(NES_direction=="diff dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, desc(go_cor))
+
+```
+
+
+```{r}
+make_df_for_one_GO_term("GO:0000377", "B", "D")%>%
+    ggplot(.,
+       aes(x = B, y = D,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+
+
+```{r}
+grp1 <- "B"
+grp2 <- "F"
+
+GOs_nestedBF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBF, grp1, grp2)
+```
+
+```{r}
+GOs_nestedBF%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+GO term is: RNA biosynthetic process
+
+```{r}
+make_df_for_one_GO_term("GO:0032774", "B", "F")%>%
+    ggplot(.,
+       aes(x = B, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: transcription by RNA polymerase II
+
+```{r}
+make_df_for_one_GO_term("GO:0006366", "B", "F")%>%
+    ggplot(.,
+       aes(x = B, y = F,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+
+```{r}
+grp1 <- "B"
+grp2 <- "G"
+
+GOs_nestedBG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBG, grp1, grp2)
+```
+
+
+
+```{r}
+grp1 <- "B"
+grp2 <- "H"
+
+GOs_nestedBH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBH, grp1, grp2)
+```
+
+
+
+```{r}
+grp1 <- "B"
+grp2 <- "L"
+
+GOs_nestedBL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+GOs_nestedBL %>% 
+  filter(NES_direction=="diff dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedBL, grp1, grp2)
+```
+
+
+
+```{r}
+grp1 <- "C"
+grp2 <- "D"
+
+GOs_nestedCD <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedCD, grp1, grp2)
+```
+
+```{r}
+grp1 <- "C"
+grp2 <- "E"
+
+GOs_nestedCE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedCE, grp1, grp2)
+```
+
+```{r}
+GOs_nestedCE%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+GO term is: inorganic cation transmembrane transport
+
+```{r}
+make_df_for_one_GO_term("GO:0098662", "C", "E")%>%
+    ggplot(.,
+       aes(x = C, y = E,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+
+```{r}
+grp1 <- "C"
+grp2 <- "H"
+
+GOs_nestedCH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedCH, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "C"
+grp2 <- "I"
+
+GOs_nestedCI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+
+
+GOs_nestedCI <- na.omit(GOs_nestedCI)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedCI, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "C"
+grp2 <- "L"
+
+GOs_nestedCL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+GOs_nestedCL%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+
+```
+
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedCL, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "D"
+grp2 <- "F"
+
+GOs_nestedDF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedDF, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "D"
+grp2 <- "L"
+
+GOs_nestedDL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedDL, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "D"
+grp2 <- "I"
+
+GOs_nestedDI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedDI, grp1, grp2)
+```
+
+```{r}
+grp1 <- "E"
+grp2 <- "F"
+
+GOs_nestedEF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedEF, grp1, grp2)
+```
+
+```{r}
+grp1 <- "E"
+grp2 <- "G"
+
+GOs_nestedEG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedEG, grp1, grp2)
+```
+
+```{r}
+grp1 <- "E"
+grp2 <- "H"
+
+GOs_nestedEH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedEH, grp1, grp2)
+```
+
+```{r}
+grp1 <- "E"
+grp2 <- "I"
+
+GOs_nestedEI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedEI, grp1, grp2)
+```
+
+```{r}
+grp1 <- "E"
+grp2 <- "L"
+
+GOs_nestedEL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedEL, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "F"
+grp2 <- "H"
+
+GOs_nestedFH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedFH, grp1, grp2)
+```
+
+```{r}
+grp1 <- "F"
+grp2 <- "I"
+
+GOs_nestedFI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedFI, grp1, grp2)
+```
+
+```{r}
+grp1 <- "G"
+grp2 <- "I"
+
+GOs_nestedGI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedGI, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "G"
+grp2 <- "L"
+
+GOs_nestedGL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedGL, grp1, grp2)
+```
+
+```{r}
+grp1 <- "H"
+grp2 <- "I"
+
+GOs_nestedHI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedHI, grp1, grp2)
+```
+
+```{r}
+grp1 <- "H"
+grp2 <- "L"
+
+GOs_nestedHL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedHL, grp1, grp2)
+```
+
+```{r}
+GOs_nestedHL%>%
+  filter(NES_direction=="same dir",
+         sig_grp %in% c("both stages", "one stage"), 
+         gene_set_n > 50)%>%
+  arrange(sig_grp, go_cor)
+```
+
+
+GO term is: tRNA modification 
+
+```{r}
+make_df_for_one_GO_term("GO:0006400", "H", "L")%>%
+    ggplot(.,
+       aes(x = H, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: RNA methylation
+
+```{r}
+make_df_for_one_GO_term("GO:0001510", "H", "L")%>%
+    ggplot(.,
+       aes(x = H, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: U2-type spliceosomal complex
+
+```{r}
+make_df_for_one_GO_term("GO:0005684", "H", "L")%>%
+    ggplot(.,
+       aes(x = H, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: maturation of SSU-rRNA
+
+
+```{r}
+make_df_for_one_GO_term("GO:0030490", "H", "L")%>%
+    ggplot(.,
+       aes(x = H, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+
+```{r}
+grp1 <- "I"
+grp2 <- "L"
+
+GOs_nestedIL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length),
+         go_cor = map_dbl(genes_vec, go_level_cor),
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  mutate(rand_cor = map_dbl(gene_set_n, rand_cor))%>%
+  select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
+```
+
+```{r}
+make_density_plot_for_condition_pairs(GOs_nestedIL, grp1, grp2)
+```
+
+
+```{r}
+grp1 <- "F"
+grp2 <- "L"
+
+make_density_plot_for_condition_pairs(GOs_nestedFL, grp1, grp2)
+```
+```{r}
+grp1 <- "D"
+grp2 <- "L"
+
+make_density_plot_for_condition_pairs(GOs_nestedDL, grp1, grp2)
+```
 
 
