@@ -604,7 +604,7 @@ GOs_nestedEB <- GOs_nested%>%
 
 
 ```{r}
-make_density_plot_for_condition_pairs(GOs_nestedd d d EB, grp1, grp2)
+make_density_plot_for_condition_pairs(GOs_nestedEB, grp1, grp2)
 ```
 
 
@@ -616,6 +616,22 @@ GOs_nestedEB %>%
          gene_set_n > 50)%>%
   arrange(sig_grp, go_cor)
 ```
+
+GO term is: ribosome biogenesis
+
+```{r}
+make_df_for_one_GO_term("GO:0042254", "B", "E")%>%
+    ggplot(.,
+       aes(x = B, y = E,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
 
 
 ```{r}
@@ -830,6 +846,7 @@ GOs_nestedAE <- GOs_nested%>%
   select(ID, gene_set_n, go_cor, rand_cor, sig_grp, NES_direction)
 ```
 
+
 ```{r}
 GOs_nestedAE %>% 
   filter(NES_direction=="same dir",
@@ -841,6 +858,20 @@ GOs_nestedAE %>%
 ```{r}
 make_density_plot_for_condition_pairs(GOs_nestedAE, grp1, grp2)
 ```
+
+```{r}
+make_df_for_one_GO_term("GO:0042254", "A", "E")%>%
+    ggplot(.,
+       aes(x = A, y = E,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
 
 ```{r}
 grp1 <- "A"
@@ -1119,12 +1150,56 @@ GOs_nestedBL <- GOs_nested%>%
 
 ```{r}
 GOs_nestedBL %>% 
-  filter(NES_direction=="diff dir",
+  filter(NES_direction=="same dir",
          sig_grp %in% c("both stages", "one stage"), 
          gene_set_n > 50)%>%
   arrange(sig_grp, go_cor)
 ```
 
+GO term is: axoneme assembly
+
+```{r}
+make_df_for_one_GO_term("GO:0035082", "B", "L")%>%
+    ggplot(.,
+       aes(x = B, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is:  cilium organization
+
+```{r}
+make_df_for_one_GO_term("GO:0044782", "B", "L")%>%
+    ggplot(.,
+       aes(x = B, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+GO term is: cilium assembly
+
+```{r}
+make_df_for_one_GO_term("GO:0060271", "B", "L")%>%
+    ggplot(.,
+       aes(x = B, y = L,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
 
 ```{r}
 make_density_plot_for_condition_pairs(GOs_nestedBL, grp1, grp2)
