@@ -2610,6 +2610,7 @@ patterns_in_shared_GOs2 <- patterns_in_shared_GOs2%>%
 ```
 
 We can start with a stacked bar plot. Higher bars are pairs that were more unique, relative to rest of the life cycle.
+
 ```{r}
 fontface_label <- patterns_in_shared_GOs%>%select(lab_comb2, font_label)%>%distinct()%>%.$font_label # does not work
 
@@ -2752,6 +2753,29 @@ patterns_in_shared_GOs2%>%
              space = "free")
 ```
 
+Let's group by pair "type" instead of life stage. This makes some comparisons easier, e.g. functionally similar life stages vs random life stage combos.
+
+```{r}
+fx <- patterns_in_shared_GOs2%>%
+  ggplot(., aes(x = lab_comb2, y = prop_sig_GOs, fill = grp)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  coord_flip() +
+  theme_bw() +
+  guides(fill = "none") +
+  labs(x = NULL, y = "Prop of sig. GO terms") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(func_grp),
+             cols = vars(level_one_decoupling, level_two_decoupling),
+             scales = "free_y",
+             space = "free")
+fx
+```
+
 Arguably the most interesting GO terms are those that are significant in both groups. The ones that are enriched in different directions and negatively correlated may be "functions" that more important in one stage than another and that rely on different genes (decoupling). By contrast, the ones that are enriched in the same direction and positively correlated suggest the same "function" and genes are relevant to both stages (coupling). When GO terms are enriched in the same direction, but different genes drive it (neg cor), this could a genetic architecture enabling independent adaptation to similar challenges and at thus interesting for the functionally similar life stages. For some of these stages, let's extract the GO terms that were significant in both stages and examine the within-GO term correlations.
 
 ```{r}
@@ -2818,7 +2842,7 @@ GOs_nestedBE%>%
   )
 ```
 
-Here are the GO terms enriched in different directions that are negative correlated (dark blue in plot):
+Here are the GO terms enriched in different directions that are negatively correlated (dark blue in plot):
 
 ```{r}
 GOs_nestedBE%>%

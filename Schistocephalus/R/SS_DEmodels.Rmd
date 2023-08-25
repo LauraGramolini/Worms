@@ -1254,7 +1254,14 @@ DE_spear_long_plot <- DE_spear_long_out%>%
     term %in% c("C", "F", "G") & cond %in% c("C", "F", "G") ~ "function: growth",
     term %in% c("D", "H") & cond %in% c("D", "H") ~ "function: transmission",
     !is.na(pair) ~ "non-consecutive")
-    )
+    )%>%
+  mutate(lab_comb2 = case_when(
+    grepl(func_grp, pattern = "function") ~ paste0("*",lab_comb,"*"),
+    !grepl(func_grp, pattern = "function") ~ lab_comb)
+    )%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb2 = fct_inorder(lab_comb2))
+
 DE_spear_long_plot <- DE_spear_long_plot%>%
   left_join(., 
             DE_pairwise_mat_plot2%>%
@@ -1262,26 +1269,6 @@ DE_spear_long_plot <- DE_spear_long_plot%>%
               mutate(pair = paste0(term, "_", cond))%>%
               select(pair, obs_spearman = shared_prop))
 ```
-
-Here is another way to plot the results. The bars show the median and 95% CI for "random" pairwise correlations. These permuted values often overlap zero, but definitely skew negative. The colored data points are the observed relationships and pairs are ordered by whether they are consecutive life stages, functionally similar but different hosts, or non-consecutive. Consecutive life stages tend to have similar expression (more positive than expected by chance, though there are some interesting exceptions). The functionally similar stages are not more similar than expected by chance, but they are also not more different than expected. The remaining correlations are usually lower than expected - genes upregulated in one stage are downregulated at other parts of the cycle - but the patterns are not pronounced, i.e. negative correlations were not greater than expected by chance.
-
-```{r}
-DE_spear_long_plot%>%
-  arrange(func_grp)%>%
-  mutate(pair = fct_inorder(pair))%>%
-  ggplot(., aes(x = pair, y = med_rho)) + 
-  geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
-  geom_point(aes(x = pair, y = obs_spearman, color = func_grp),
-             shape = 15, size = 2) +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  coord_flip() + 
-  scale_x_discrete(limits = rev) +
-  labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
-  theme(panel.grid.major.y = element_blank())
-```
-
-In the above plot, pairs are ordered by the type of comparison, starting with consecutive stages. Alternatively, we can order the correlations by the amount of time (days) that passes between stage sampling.
-
 ```{r}
 # combine pairwise spearman cors with data on time differences between stages
 ss_dat_time <- SScolData%>%
@@ -1306,9 +1293,36 @@ DE_spear_long_plotX <- left_join(
   by = c("cond" = "Condition")
 )%>%
   mutate(time_diff = time2 - time1,
-         lab_comb = paste0(lab1, ":", lab2))
-
+         lab_comb = paste0(lab1, ":", lab2))%>%
+  mutate(lab_comb2 = case_when(
+    grepl(func_grp, pattern = "function") ~ paste0("*",lab_comb,"*"),
+    !grepl(func_grp, pattern = "function") ~ lab_comb)
+    )%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb2 = fct_inorder(lab_comb2))
 ```
+
+Here is another way to plot the results. The bars show the median and 95% CI for "random" pairwise correlations. These permuted values often overlap zero, but definitely skew negative. The colored data points are the observed relationships and pairs are ordered by whether they are consecutive life stages, functionally similar but different hosts, or non-consecutive. Consecutive life stages tend to have similar expression (more positive than expected by chance, though there are some interesting exceptions). The functionally similar stages are not more similar than expected by chance, but they are also not more different than expected. The remaining correlations are usually lower than expected - genes upregulated in one stage are downregulated at other parts of the cycle - but the patterns are not pronounced, i.e. negative correlations were not greater than expected by chance.
+
+```{r}
+DE_spear_long_plotX%>%
+  ggplot(., aes(x = lab_comb2, y = med_rho)) + 
+  geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
+  geom_point(aes(x = lab_comb2, y = obs_spearman, color = func_grp),
+             shape = 15, size = 2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  coord_flip() + 
+  scale_x_discrete(limits = rev) +
+  labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(func_grp),
+             scales = "free_y",
+             space = "free")
+```
+
+In the above plot, pairs are ordered by the type of comparison, starting with consecutive stages. Alternatively, we can order the correlations by the amount of time (days) that passes between stage sampling.
 
 Here is that plot. Pairs of life stages at the top, which were sometimes sampled within minutes or hours of each other, tend to have similar gene expression (positive correlations), whereas pairs at the bottom, which were sampled weeks or months apart, tend to have more different gene expression (negative correlations).
 
