@@ -37,7 +37,7 @@ get_gene_list <- function(df){
 # function to get conditions in which GO term sig enriched or depleted, relative to rest of cycle
 sig_enrich_depl_conditions <- function(df){
   conds <- df%>%
-    filter(p.adjust < 0.01)%>%
+    filter(p.adjust < 0.05)%>%
     .$condition
   return(conds)
 }
@@ -1678,4 +1678,1371 @@ grp2 <- "L"
 make_density_plot_for_condition_pairs(GOs_nestedDL, grp1, grp2)
 ```
 
+
+
+
+
+
+
+# REVAMPED
+
+```{r}
+# load gene level and GO-term level datasets
+DEGs <- read.csv("../data/DEGs_by_devo_stage.csv", header=TRUE, sep=",")
+GOs <- read.csv("../data/GOclusters.csv", header=TRUE, sep=" ")
+
+DEGs$gene <- str_replace(DEGs$gene, "gene:", "")
+```
+
+These are functions needed to wrangle output of GSEA.
+
+```{r}
+# function to get gene list for each GO term
+get_gene_list <- function(df){
+  genes_in_go <- df%>%
+    .$core_enrichment%>%
+    str_split(., "/")%>%
+    unlist(.)%>%
+    unique(.)
+  return(genes_in_go)
+}
+
+# function to get conditions in which GO term sig enriched or depleted, relative to rest of cycle
+sig_enrich_depl_conditions <- function(df, pval){
+  conds <- df%>%
+    filter(p.adjust < pval)%>%
+    .$condition
+  return(conds)
+}
+```
+
+```{r}
+# for two conditions, make a wide df for gene-level data
+filtered_gene_lev_data <- function(df, var1, var2){
+  dx <- df%>%
+    filter(condition %in% c( {{var1}}, {{var2}}))%>%
+    select(gene, lfc, condition)%>%
+    pivot_wider(id_cols = c(gene), names_prefix = "cond",
+                names_from = condition, values_from = lfc)
+  return(dx)
+}
+
+# calculate gene-level correlation for a GO term
+go_level_cor <- function(genes_in_go, cor_method){
+  dx <- filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+    filter(gene %in% genes_in_go)%>%
+    select(starts_with("cond"))
+  return(cor(dx, method = cor_method)[2,1])
+}
+```
+
+
+```{r}
+# random correlation without regard to GO-term - null dist for GO cor
+rand_cor <- function(set_size){
+  dx <- filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+    sample_n(size = set_size)%>%
+    select(starts_with("cond"))
+  return(cor(dx)[2,1])
+}
+
+# id if both, one, or none of the two conditions were sig enriched for a GO term
+make_sig_grps_for_go <- function(sig_conds){
+  grp <- case_when(
+  grp1 %in% sig_conds &
+    grp2 %in% sig_conds ~ "both stages",
+  grp1 %in% sig_conds |
+    grp2 %in% sig_conds ~ "one stage",
+  !grp1 %in% sig_conds &
+    !grp2 %in% sig_conds ~ "no stages")
+  return(grp)
+}
+
+# test whether enrichment score goes in same direction in two conditions
+enrich_direction <- function(df){
+  dx <- df%>%
+    filter(condition %in% c(grp1, grp2))%>%
+    select(condition, NES)%>%
+    pivot_wider(names_from = condition, values_from = NES)
+  if(ncol(dx) < 2 ) {
+    direction <- NA_character_
+  } else {
+    direction <- 
+      if( (dx[,1] > 0 & dx[,2] > 0) | (dx[,1] < 0 & dx[,2] < 0) ) {
+        direction <- "same dir"
+      } else {
+        direction <- "diff dir"
+      }
+  }
+  
+  return(direction)
+}
+```
+
+```{r}
+# calculate overall correlation at gene level for two conditions
+overall_cor <- function(df, var1, var2){
+  dx <- df%>%
+    filter(condition %in% c( {{var1}}, {{var2}}))%>%
+    select(gene, lfc, condition)%>%
+    pivot_wider(id_cols = c(gene), names_prefix = "cond",
+                names_from = condition, values_from = lfc)%>%
+    select(starts_with("cond"))
+  return(cor(dx)[2,1])
+}
+# overall_cor(DEGs, "A", "B")
+```
+
+```{r}
+# plot distribution of correlation coefficients per GO term
+make_density_plot_for_condition_pairs <- function(df, var1, var2){
+  p <- ggplot(df, aes(go_cor, color = sig_grp)) +
+    geom_vline(xintercept = overall_cor(DEGs, var1, var2), color = "black", linetype = "dashed") +
+    geom_vline(xintercept = quantile(df$rand_cor, probs = 0.025), color = "black", linetype = "dotted") +
+    geom_vline(xintercept = quantile(df$rand_cor, probs = 0.975), color = "black", linetype = "dotted") +
+    geom_density() +
+    geom_text(data = df%>%
+      select(sig_grp, go_cor, NES_direction)%>%
+      group_by(sig_grp,NES_direction)%>%
+      summarize(y = max(density(go_cor)$y),
+                n = n()),
+    aes(x = 0.9, y = y, label = n)) +
+    labs(title = paste0(var1, " vs ", var2),
+         x = "Gene-level cor. coef. for GO-term",
+         y = "density",
+         color = "Enriched") +
+    scale_x_continuous(limits = c(-1,1)) +
+    facet_wrap( ~ NES_direction) +
+    theme_bw()
+  return(p)
+}
+```
+
+Set some of the parameters for summarizing the GO results...
+
+```{r}
+pval <- 0.05 # adj pval to consider GO term sig for condition
+min_genes_in_set <- 20 # minimum number of genes in set
+type_of_cor <- "pearson" # correlation type within GO terms
+```
+
+Then, we nest the GO output by GO term
+
+```{r}
+# nest data by GO term
+GOs_nested <- GOs%>%
+  select(ID, condition, NES, p.adjust, core_enrichment)%>%
+  group_by(ID)%>%
+  nest()
+# apply gene list and sig conditions functions to each GO term
+GOs_nested <- GOs_nested%>%
+  mutate(genes_vec = map(data, get_gene_list),
+         sig_enrich_grps = map(data, sig_enrich_depl_conditions, pval = pval))
+```
+
+For every pairwise combination of parasite stages and for every GO-term, I calculate the following: 
+1) whether the GO-term is significantly enriched in both, one, or none of the two stages
+2) whether the GO-term enrichment score goes in the same or opposite direction for the two stages
+3) the correlation between gene expression in the two terms
+
+# All pairs A
+
+```{r}
+grp1 <- "A"
+grp2 <- "B"
+
+GOs_nestedAB <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "C"
+GOs_nestedAC <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "D"
+GOs_nestedAD <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "E"
+GOs_nestedAE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "F"
+GOs_nestedAF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "G"
+GOs_nestedAG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "H"
+GOs_nestedAH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedAI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedAL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs B
+
+```{r}
+grp1 <- "B"
+grp2 <- "C"
+GOs_nestedBC <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "D"
+GOs_nestedBD <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "E"
+GOs_nestedBE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "F"
+GOs_nestedBF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "G"
+GOs_nestedBG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "H"
+GOs_nestedBH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedBI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedBL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs C
+
+```{r}
+grp1 <- "C"
+grp2 <- "D"
+GOs_nestedCD <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "E"
+GOs_nestedCE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "F"
+GOs_nestedCF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "G"
+GOs_nestedCG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "H"
+GOs_nestedCH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedCI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedCL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs D
+
+```{r}
+grp1 <- "D"
+grp2 <- "E"
+GOs_nestedDE <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "F"
+GOs_nestedDF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "G"
+GOs_nestedDG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "H"
+GOs_nestedDH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedDI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedDL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs E
+
+```{r}
+grp1 <- "E"
+grp2 <- "F"
+GOs_nestedEF <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "G"
+GOs_nestedEG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "H"
+GOs_nestedEH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedEI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedEL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs F
+
+```{r}
+grp1 <- "F"
+grp2 <- "G"
+GOs_nestedFG <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "H"
+GOs_nestedFH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedFI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedFL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs G
+
+```{r}
+grp1 <- "G"
+grp2 <- "H"
+GOs_nestedGH <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "I"
+GOs_nestedGI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedGL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs H
+
+```{r}
+grp1 <- "H"
+grp2 <- "I"
+GOs_nestedHI <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+
+grp2 <- "L"
+GOs_nestedHL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+# All pairs I
+
+```{r}
+grp1 <- "I"
+grp2 <- "L"
+GOs_nestedIL <- GOs_nested%>%
+  mutate(gene_set_n = map_dbl(genes_vec, length))%>%
+  filter(gene_set_n >= min_genes_in_set)%>% # how many genes in set needed to keep
+  mutate(go_cor = map_dbl(genes_vec, go_level_cor, cor_method = type_of_cor), # cor method used
+         sig_grp = map_chr(sig_enrich_grps, make_sig_grps_for_go),
+         NES_direction = map_chr(data, enrich_direction))%>%
+  select(ID, gene_set_n, go_cor, sig_grp, NES_direction)
+```
+
+For each pair of life stages, we have a dataset at the level of GO terms. We want to now summarize these datasets by counting the number of GO terms that were significant in one or both groups, as well as the directions of the GO-term level correlations. Functions to do that...
+
+```{r}
+make_pair_GO_df <- function(GO_data_from_perms, cor_coef){
+  dx <- GO_data_from_perms%>%
+    ungroup()%>%
+    mutate(
+      level_one_decoupling = if_else(sig_grp == "no stages", NA_character_, 
+                                     if_else(sig_grp == "one stage", "sig one stage",
+                                             if_else(sig_grp == "both stages" & NES_direction == "same dir", 
+                                                     "sig both, same dir",
+                                                     "sig both, diff dir"))))%>%
+    mutate(
+      # level_two_decoupling = if_else(is.na(level_one_decoupling), NA_character_, if_else(go_cor < rand_cor, "neg", "pos")),
+      level_two_decoupling2 = if_else(is.na(level_one_decoupling), NA_character_, if_else(go_cor < 0, "neg", "pos")),
+      level_two_decoupling3 = if_else(is.na(level_one_decoupling), NA_character_, 
+                                      if_else(between(go_cor, -1 * cor_coef, cor_coef), "none", 
+                                              if_else(go_cor < -1 * cor_coef, "neg", "pos")))
+      )
+  return(dx)
+}
+
+# make_pair_GO_df(GOs_nestedAC)
+```
+
+```{r}
+make_pair_GO_df_counts <- function(grp1, grp2, dx, num_cor_categories){
+  
+  if(num_cor_categories == 2) {
+    
+    # number of GO terms by level one and level two decoupling criteria
+    out_tbl <- dx%>%
+      filter(!is.na(level_one_decoupling))%>%
+      mutate(level_one_decoupling = fct_expand(level_one_decoupling, 
+                                               c("sig both, same dir", "sig one stage", "sig both, diff dir")),
+             level_two_decoupling = fct_expand(level_two_decoupling2, 
+                                               c("pos", "neg")),
+             )%>%
+      mutate(level_one_decoupling = fct_relevel(level_one_decoupling, 
+                                               c("sig both, same dir", "sig one stage", "sig both, diff dir")),
+             level_two_decoupling = fct_relevel(level_two_decoupling, 
+                                               c("pos", "neg")),
+             )%>%
+      group_by(pick(level_one_decoupling, level_two_decoupling), .drop = FALSE)%>%
+      count()%>%
+      rename(GOs = n)%>%
+      arrange(level_one_decoupling, level_two_decoupling)
+    
+    # number of GO terms assessed
+    T1 <- dx%>%
+      count()
+    out_tbl$GOs_tested <- T1$n
+    
+    # number of GO terms not sig in either grp
+    N1 <- dx%>%
+        filter(!is.na(level_one_decoupling))%>%
+        count()
+    out_tbl$GOs_sig <- N1$n
+    
+    out_tbl <- out_tbl%>%
+      ungroup()%>%
+      mutate(prop_sig_GOs = GOs/GOs_sig,
+             grp = c("sig_both_same_dir_pos_cor", "sig_both_same_dir_neg_cor",
+                     "sig_one_pos_cor", "sig_one_neg_cor",
+                     "sig_both_diff_dir_pos_cor", "sig_both_diff_dir_neg_cor")
+             )
+
+  } else if(num_cor_categories == 3) {
+    
+    # number of GO terms by level one and level two decoupling criteria
+    out_tbl <- dx%>%
+      filter(!is.na(level_one_decoupling))%>%
+      mutate(level_one_decoupling = fct_expand(level_one_decoupling, 
+                                               c("sig both, same dir", "sig one stage", "sig both, diff dir")),
+             level_two_decoupling = fct_expand(level_two_decoupling3, 
+                                               c("pos", "none", "neg")),
+             )%>%
+      mutate(level_one_decoupling = fct_relevel(level_one_decoupling, 
+                                               c("sig both, same dir", "sig one stage", "sig both, diff dir")),
+             level_two_decoupling = fct_relevel(level_two_decoupling, 
+                                               c("pos", "none", "neg")),
+             )%>%
+      group_by(pick(level_one_decoupling, level_two_decoupling), .drop = FALSE)%>%
+      count()%>%
+      rename(GOs = n)%>%
+      arrange(level_one_decoupling, level_two_decoupling)
+    
+    # number of GO terms assessed
+    T1 <- dx%>%
+      count()
+    out_tbl$GOs_tested <- T1$n
+    
+    # number of GO terms not sig in either grp
+    N1 <- dx%>%
+        filter(!is.na(level_one_decoupling))%>%
+        count()
+    out_tbl$GOs_sig <- N1$n
+    
+    out_tbl <- out_tbl%>%
+      ungroup()%>%
+      mutate(prop_sig_GOs = GOs/GOs_sig,
+             grp = c("sig_both_same_dir_pos_cor", "sig_both_same_dir_no_cor", "sig_both_same_dir_neg_cor",
+                     "sig_one_pos_cor", "sig_one_no_cor", "sig_one_neg_cor",
+                     "sig_both_diff_dir_pos_cor", "sig_both_diff_dir_no_cor", "sig_both_diff_dir_neg_cor")
+             )
+  }
+  
+  out_tbl$stage1 <- grp1
+  out_tbl$stage2 <- grp2
+  out_tbl <- out_tbl%>%
+    mutate(grp = fct_inorder(grp),
+           pair = paste0(stage1, "-", stage2))
+
+  return(out_tbl)
+}
+```
+
+Now, we create and combine the pairwise, summarized datasets for plotting.
+
+```{r}
+cor_coef_threshold <- 0.2 # correlation coef considered positive or negative
+```
+
+```{r}
+patterns_in_shared_GOs <- bind_rows(
+  make_pair_GO_df_counts("A", "B", make_pair_GO_df(GOs_nestedAB, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "C", make_pair_GO_df(GOs_nestedAC, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "D", make_pair_GO_df(GOs_nestedAD, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "E", make_pair_GO_df(GOs_nestedAE, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "F", make_pair_GO_df(GOs_nestedAF, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "G", make_pair_GO_df(GOs_nestedAG, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "H", make_pair_GO_df(GOs_nestedAH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "I", make_pair_GO_df(GOs_nestedAI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("A", "L", make_pair_GO_df(GOs_nestedAL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("B", "C", make_pair_GO_df(GOs_nestedBC, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "D", make_pair_GO_df(GOs_nestedBD, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "E", make_pair_GO_df(GOs_nestedBE, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "F", make_pair_GO_df(GOs_nestedBF, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "G", make_pair_GO_df(GOs_nestedBG, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "H", make_pair_GO_df(GOs_nestedBH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "I", make_pair_GO_df(GOs_nestedBI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("B", "L", make_pair_GO_df(GOs_nestedBL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("C", "D", make_pair_GO_df(GOs_nestedCD, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("C", "E", make_pair_GO_df(GOs_nestedCE, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("C", "F", make_pair_GO_df(GOs_nestedCF, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("C", "G", make_pair_GO_df(GOs_nestedCG, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("C", "H", make_pair_GO_df(GOs_nestedCH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("C", "I", make_pair_GO_df(GOs_nestedCI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("C", "L", make_pair_GO_df(GOs_nestedCL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("D", "E", make_pair_GO_df(GOs_nestedDE, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("D", "F", make_pair_GO_df(GOs_nestedDF, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("D", "G", make_pair_GO_df(GOs_nestedDG, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("D", "H", make_pair_GO_df(GOs_nestedDH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("D", "I", make_pair_GO_df(GOs_nestedDI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("D", "L", make_pair_GO_df(GOs_nestedDL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("E", "F", make_pair_GO_df(GOs_nestedEF, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("E", "G", make_pair_GO_df(GOs_nestedEG, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("E", "H", make_pair_GO_df(GOs_nestedEH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("E", "I", make_pair_GO_df(GOs_nestedEI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("E", "L", make_pair_GO_df(GOs_nestedEL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("F", "G", make_pair_GO_df(GOs_nestedFG, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("F", "H", make_pair_GO_df(GOs_nestedFH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("F", "I", make_pair_GO_df(GOs_nestedFI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("F", "L", make_pair_GO_df(GOs_nestedFL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("G", "H", make_pair_GO_df(GOs_nestedGH, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("G", "I", make_pair_GO_df(GOs_nestedGI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("G", "L", make_pair_GO_df(GOs_nestedGL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("H", "I", make_pair_GO_df(GOs_nestedHI, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  make_pair_GO_df_counts("H", "L", make_pair_GO_df(GOs_nestedHL, cor_coef = cor_coef_threshold), num_cor_categories = 3),
+  
+  make_pair_GO_df_counts("I", "L", make_pair_GO_df(GOs_nestedIL, cor_coef = cor_coef_threshold), num_cor_categories = 3)
+)
+```
+
+```{r}
+patterns_in_shared_GOs2 <- bind_rows(
+  make_pair_GO_df_counts("A", "B", make_pair_GO_df(GOs_nestedAB, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "C", make_pair_GO_df(GOs_nestedAC, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "D", make_pair_GO_df(GOs_nestedAD, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "E", make_pair_GO_df(GOs_nestedAE, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "F", make_pair_GO_df(GOs_nestedAF, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "G", make_pair_GO_df(GOs_nestedAG, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "H", make_pair_GO_df(GOs_nestedAH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "I", make_pair_GO_df(GOs_nestedAI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("A", "L", make_pair_GO_df(GOs_nestedAL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("B", "C", make_pair_GO_df(GOs_nestedBC, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "D", make_pair_GO_df(GOs_nestedBD, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "E", make_pair_GO_df(GOs_nestedBE, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "F", make_pair_GO_df(GOs_nestedBF, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "G", make_pair_GO_df(GOs_nestedBG, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "H", make_pair_GO_df(GOs_nestedBH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "I", make_pair_GO_df(GOs_nestedBI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("B", "L", make_pair_GO_df(GOs_nestedBL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("C", "D", make_pair_GO_df(GOs_nestedCD, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("C", "E", make_pair_GO_df(GOs_nestedCE, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("C", "F", make_pair_GO_df(GOs_nestedCF, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("C", "G", make_pair_GO_df(GOs_nestedCG, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("C", "H", make_pair_GO_df(GOs_nestedCH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("C", "I", make_pair_GO_df(GOs_nestedCI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("C", "L", make_pair_GO_df(GOs_nestedCL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("D", "E", make_pair_GO_df(GOs_nestedDE, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("D", "F", make_pair_GO_df(GOs_nestedDF, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("D", "G", make_pair_GO_df(GOs_nestedDG, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("D", "H", make_pair_GO_df(GOs_nestedDH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("D", "I", make_pair_GO_df(GOs_nestedDI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("D", "L", make_pair_GO_df(GOs_nestedDL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("E", "F", make_pair_GO_df(GOs_nestedEF, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("E", "G", make_pair_GO_df(GOs_nestedEG, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("E", "H", make_pair_GO_df(GOs_nestedEH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("E", "I", make_pair_GO_df(GOs_nestedEI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("E", "L", make_pair_GO_df(GOs_nestedEL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("F", "G", make_pair_GO_df(GOs_nestedFG, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("F", "H", make_pair_GO_df(GOs_nestedFH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("F", "I", make_pair_GO_df(GOs_nestedFI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("F", "L", make_pair_GO_df(GOs_nestedFL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("G", "H", make_pair_GO_df(GOs_nestedGH, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("G", "I", make_pair_GO_df(GOs_nestedGI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("G", "L", make_pair_GO_df(GOs_nestedGL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("H", "I", make_pair_GO_df(GOs_nestedHI, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  make_pair_GO_df_counts("H", "L", make_pair_GO_df(GOs_nestedHL, cor_coef = cor_coef_threshold), num_cor_categories = 2),
+  
+  make_pair_GO_df_counts("I", "L", make_pair_GO_df(GOs_nestedIL, cor_coef = cor_coef_threshold), num_cor_categories = 2)
+)
+```
+
+Add information on the life stages to this data for plotting.
+
+```{r}
+cond_names_df <- data.frame(
+  lab = c("free", "cop-inf", "cop-grow", "cop-trans", "fish-inf", "fish-grow", "fish-grow2", "fish-trans", "bird-inf", "bird-repr"),
+  Condition = c("A", "B", "C", "D", "E", "F", "G", "H", "I", "L")
+  )
+
+patterns_in_shared_GOs <- left_join(
+  patterns_in_shared_GOs,
+  cond_names_df%>%
+    rename(lab1 = lab),
+  by = c("stage1" = "Condition")
+  )%>%
+  left_join(
+  .,
+  cond_names_df%>%
+    rename(lab2 = lab),
+  by = c("stage2" = "Condition"))%>%
+  mutate(lab_comb = paste0(lab1, ":", lab2))%>%
+  mutate(lab_comb = fct_inorder(lab_comb))
+
+patterns_in_shared_GOs2 <- left_join(
+  patterns_in_shared_GOs2,
+  cond_names_df%>%
+    rename(lab1 = lab),
+  by = c("stage1" = "Condition")
+  )%>%
+  left_join(
+  .,
+  cond_names_df%>%
+    rename(lab2 = lab),
+  by = c("stage2" = "Condition"))%>%
+  mutate(lab_comb = paste0(lab1, ":", lab2))%>%
+  mutate(lab_comb = fct_inorder(lab_comb))
+```
+```{r}
+patterns_in_shared_GOs <- patterns_in_shared_GOs%>%
+  mutate(func_grp = case_when(
+    pair %in% c("A-B", "B-C", "C-D", "D-E", "E-F", "F-G", "G-H", "H-I", "I-L") ~ "consecutive",
+    stage1 %in% c("B", "E", "I") & stage2 %in% c("B", "E", "I") ~ "function: infecting",
+    stage1 %in% c("C", "F", "G") & stage2 %in% c("C", "F", "G") ~ "function: growth",
+    stage1 %in% c("D", "H") & stage2 %in% c("D", "H") ~ "function: transmission",
+    !is.na(pair) ~ "non-consecutive")
+    )%>%
+  mutate(lab_comb2 = case_when(
+    grepl(func_grp, pattern = "function") ~ paste0("*",lab_comb,"*"),
+    !grepl(func_grp, pattern = "function") ~ lab_comb),
+    font_label = case_when(
+    grepl(func_grp, pattern = "function") ~ "bold",
+    !grepl(func_grp, pattern = "function") ~ "plain")
+    )%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb2 = fct_inorder(lab_comb2))
+
+patterns_in_shared_GOs2 <- patterns_in_shared_GOs2%>%
+  mutate(func_grp = case_when(
+    pair %in% c("A-B", "B-C", "C-D", "D-E", "E-F", "F-G", "G-H", "H-I", "I-L") ~ "consecutive",
+    stage1 %in% c("B", "E", "I") & stage2 %in% c("B", "E", "I") ~ "function: infecting",
+    stage1 %in% c("C", "F", "G") & stage2 %in% c("C", "F", "G") ~ "function: growth",
+    stage1 %in% c("D", "H") & stage2 %in% c("D", "H") ~ "function: transmission",
+    !is.na(pair) ~ "non-consecutive")
+    )%>%
+  mutate(lab_comb2 = case_when(
+    grepl(func_grp, pattern = "function") ~ paste0("*",lab_comb,"*"),
+    !grepl(func_grp, pattern = "function") ~ lab_comb),
+    font_label = case_when(
+    grepl(func_grp, pattern = "function") ~ "bold",
+    !grepl(func_grp, pattern = "function") ~ "plain")
+    )%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb2 = fct_inorder(lab_comb2))
+```
+
+We can start with a stacked bar plot. Higher bars are pairs that were more unique, relative to rest of the life cycle.
+```{r}
+fontface_label <- patterns_in_shared_GOs%>%select(lab_comb2, font_label)%>%distinct()%>%.$font_label # does not work
+
+patterns_in_shared_GOs%>%
+  ggplot(., aes(x = lab_comb2, y = GOs, fill = grp)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev) +
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  coord_flip() +
+  theme_bw() +
+  labs(x = NULL, y = "Number of GO terms", fill = NULL) +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(lab1),
+             scales = "free", space = "free")
+```
+
+It might be easier to compare pairs when we express the same information as proportions. More red, more coupled. More blue, more decoupled.
+
+```{r}
+patterns_in_shared_GOs%>%
+  ggplot(., aes(x = lab_comb2, y = prop_sig_GOs, fill = grp)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(add = c(0,0))) +
+  coord_flip() +
+  theme_bw() +
+  # guides(fill=guide_legend(nrow=3, byrow=TRUE, title = NULL)) +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  labs(x = NULL, y = "Prop. of sig. GO terms", fill = NULL) +
+  facet_grid(rows = vars(lab1),
+             scales = "free", space = "free")
+```
+
+Instead of 9 groups, we can simplify to 6 groups (i.e. removing the "no cor" group and instead simply saying correlations were positive or negative). The patterns might be a bit clearer. In any case, GO terms that are significant in both stages are much rarer than GO terms that are just enriched in one stage.
+
+```{r}
+patterns_in_shared_GOs2%>%
+  ggplot(., aes(x = lab_comb2, y = prop_sig_GOs, fill = grp)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(add = c(0,0))) +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  labs(x = NULL, y = "Prop. of sig. GO terms", fill = NULL) +
+  facet_grid(rows = vars(lab1),
+             scales = "free", space = "free")
+```
+
+The pairs are grouped by life stage, but maybe the patterns are easier to observe when the pairs are grouped by "type", i.e. whether they are consecutive stages, functionally similar stages, or non-consecutive stages. This highlights how consecutive stages tend to have similar functional enrichment (more red). The consecutive pairs that were the least similar involved transitions between hosts (cop inf vs cop grow and fish inf vs fish grow). The functionally similar stages mostly look like the non-consecutive pairs. A few non-consecutive pairs are quite similar in enrichment, like cop grow and fish inf.
+
+```{r}
+patterns_in_shared_GOs2%>%
+  ggplot(., aes(x = lab_comb2, y = prop_sig_GOs, fill = grp)) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(add = c(0,0))) +
+  coord_flip() +
+  theme_bw() +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  labs(x = NULL, y = "Prop. of sig. GO terms", fill = NULL) +
+  facet_grid(rows = vars(func_grp),
+             scales = "free", space = "free")
+```
+
+Comparisons across pairs might be easier if we unstack the bars and plot the number of GO terms that fall into each group separately. Here is that plot with the number of GO terms. This shows how some groups (sig in diff directions but positively correlated) are rare.
+
+```{r}
+patterns_in_shared_GOs%>%
+  ggplot(., aes(x = lab_comb2, y = GOs, fill = grp)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  coord_flip() +
+  theme_bw() +
+  guides(fill = "none") +
+  labs(x = NULL, y = "Number of GO terms") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(lab1),
+             cols = vars(level_one_decoupling, level_two_decoupling),
+             scales = "free_y", space = "free")
+```
+
+The same plot with only 6 groups is simpler. Two groups are rare (but interesting): (i) when GO terms are are enriched in both stages in the same direction and negatively correlated, (ii) enriched in both stages in different directions and positively correlated.
+
+```{r}
+patterns_in_shared_GOs2%>%
+  ggplot(., aes(x = lab_comb2, y = GOs, fill = grp)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  coord_flip() +
+  theme_bw() +
+  guides(fill = "none") +
+  labs(x = NULL, y = "Number of GO terms") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(lab1),
+             cols = vars(level_one_decoupling, level_two_decoupling),
+             scales = "free_y",
+             space = "free")
+```
+
+The same plot with proportions instead of counts (best one?).
+
+```{r}
+patterns_in_shared_GOs2%>%
+  ggplot(., aes(x = lab_comb2, y = prop_sig_GOs, fill = grp)) +
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_brewer(type = "div", palette = "RdBu") +
+  scale_x_discrete(limits = rev, expand = expansion(add = c(0,0))) +
+  scale_y_continuous(expand = expansion(mult = c(0,0.05))) +
+  coord_flip() +
+  theme_bw() +
+  guides(fill = "none") +
+  labs(x = NULL, y = "Prop of sig. GO terms") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(lab1),
+             cols = vars(level_one_decoupling, level_two_decoupling),
+             scales = "free_y",
+             space = "free")
+```
+
+Arguably the most interesting GO terms are those that are significant in both groups. The ones that are enriched in different directions and negatively correlated may be "functions" that more important in one stage than another and that rely on different genes (decoupling). By contrast, the ones that are enriched in the same direction and positively correlated suggest the same "function" and genes are relevant to both stages (coupling). When GO terms are enriched in the same direction, but different genes drive it (neg cor), this could a genetic architecture enabling independent adaptation to similar challenges and at thus interesting for the functionally similar life stages. For some of these stages, let's extract the GO terms that were significant in both stages and examine the within-GO term correlations.
+
+```{r}
+# function to make df for plotting for one GO term
+make_df_for_one_GO_term <- function(go_term, grp1, grp2){
+
+  genes_in_go <- GOs%>%
+    filter(ID == go_term)%>%
+    .$core_enrichment%>%
+    str_split(., "/")%>%
+    unlist(.)%>%
+    unique(.)
+  
+  dx <- bind_rows(
+    filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+      mutate(gene_in_go = "all"),
+    filtered_gene_lev_data(DEGs, grp1, grp2)%>%
+      filter(gene %in% genes_in_go)%>%
+      mutate(gene_in_go = go_term)
+    )
+  
+  dx <- dx%>%rename_with(~ gsub("cond", "", .x))
+  return(dx)
+}
+```
+
+We can start with the infecting stage in copepods and fish, both of which were induced with in vitro methods. 
+
+Here are the GO terms enriched in the same direction that are positively correlated (dark red in plot):
+
+```{r}
+GOs_nestedBE%>%
+  filter(sig_grp == "both stages", NES_direction == "same dir", go_cor > 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+Genes involved in making and processing ncRNA are important in both stages and the same genes tend to be upregulated.
+
+```{r}
+make_df_for_one_GO_term("GO:0034660", "B", "E")%>%
+    ggplot(.,
+       aes(x = B, y = E,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Here are the GO terms enriched in the same direction that are negatively correlated (light red in plot):
+
+```{r}
+GOs_nestedBE%>%
+  filter(sig_grp == "both stages", NES_direction == "same dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Here are the GO terms enriched in different directions that are negative correlated (dark blue in plot):
+
+```{r}
+GOs_nestedBE%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+A couple genes involved in intraciliary macromolecule transport that are upregulated in cop inf are downregulated in fish inf.
+
+```{r}
+make_df_for_one_GO_term("GO:0035735", "B", "E")%>%
+    ggplot(.,
+       aes(x = B, y = E,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Here are the GO terms enriched in different directions that are positively correlated (light blue in plot):
+
+```{r}
+GOs_nestedBE%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor > 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Now let's compare growing stages in copepods and fish using the same approach.
+
+Here are the GO terms enriched in the same direction that are positively correlated (dark red in plot):
+
+```{r}
+GOs_nestedCF%>%
+  filter(sig_grp == "both stages", NES_direction == "same dir", go_cor > 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Genes involved in "minus-end-directed microtubule motor activity" are downregulated in both growing stages in a consistent way.
+
+```{r}
+make_df_for_one_GO_term("GO:0008569", "C", "F")%>%
+    ggplot(.,
+       aes(x = `C`, y = `F`,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Here are the GO terms enriched in the same direction that are negatively correlated (light red in plot):
+
+```{r}
+GOs_nestedCF%>%
+  filter(sig_grp == "both stages", NES_direction == "same dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Several interesting terms here involved in morphogenesis, which fits to growing stages. Here are genes involved in "collagen binding"; the ones that are most expressed in copepods are downregulated in fish.
+
+```{r}
+make_df_for_one_GO_term("GO:0005518", "C", "F")%>%
+    ggplot(.,
+       aes(x = `C`, y = `F`,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Here are the GO terms enriched in different directions that are negative correlated (dark blue in plot):
+
+```{r}
+GOs_nestedCF%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Several gene sets involved in regulation are highly differentially regulated in the two stages. For instance, "tyrosine kinase activity" genes upregulated during growth in fish are downregulated during growth in copepods. Tyrosine kinases are important for regulating transcription and this suggests that different ones regulate growth in the two stages.
+
+```{r}
+make_df_for_one_GO_term("GO:0004713", "C", "F")%>%
+    ggplot(.,
+       aes(x = `C`, y = `F`,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Here are the GO terms enriched in different directions that are positively correlated (light blue in plot):
+
+```{r}
+GOs_nestedCF%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor > 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Now let's compare the transmission stages in copepods and fish.
+
+Here are the GO terms enriched in the same direction that are positively correlated (dark red in plot):
+
+```{r}
+GOs_nestedDH%>%
+  filter(sig_grp == "both stages", NES_direction == "same dir", go_cor > 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Here are the GO terms enriched in the same direction that are negatively correlated (light red in plot):
+
+```{r}
+GOs_nestedDH%>%
+  filter(sig_grp == "both stages", NES_direction == "same dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Several interesting terms here are involved in signalling. Here is a plot of "monoatomic ion gated channel activity" genes. They are upregulated in both on average, but the most highly expressed in copepods and downregulated in fish (and vice versa).
+
+```{r}
+make_df_for_one_GO_term("GO:0022839", "D", "H")%>%
+    ggplot(.,
+       aes(x = `D`, y = `H`,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
+
+Here are the GO terms enriched in different directions that are negative correlated (dark blue in plot):
+
+```{r}
+GOs_nestedDH%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+Here are the GO terms enriched in different directions that are positively correlated (light blue in plot):
+
+```{r}
+GOs_nestedDH%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor > 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+
+
+Finally, many terms are decoupled (dark blue) between the fish and bird infecting stages. Many seem to involve cell death.
+
+```{r}
+GOs_nestedEI%>%
+  filter(sig_grp == "both stages", NES_direction == "diff dir", go_cor < 0)%>%
+  arrange(go_cor)%>%
+  select(ID, gene_set_n, go_cor)%>%
+  left_join(.,
+            GOs%>%select(Description, ID)%>%distinct()
+  )
+```
+
+For example, here are genes involved in regulating cell killing. Some are highly upregulated in the bird stage but downregulated in the fish stage.S
+
+```{r}
+make_df_for_one_GO_term("GO:0031341", "E", "I")%>%
+    ggplot(.,
+       aes(x = `E`, y = `I`,
+           color = gene_in_go, alpha = gene_in_go)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dotted") + geom_vline(xintercept = 0, linetype = "dotted") +
+    geom_smooth(method = lm, se = F) +
+    scale_alpha_manual(values = c(0.1, 1)) +
+    coord_cartesian(xlim = c(-10,10), ylim = c(-10, 10)) +
+    theme_bw()
+```
 
