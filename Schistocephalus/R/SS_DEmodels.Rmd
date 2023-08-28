@@ -454,6 +454,19 @@ reverselog_trans <- function(base = exp(1)) {
 ```
 ```{r volcano}
 # volcano plot
+cond_labs <- c(
+  `A` = "free",
+  `B` = "cop-inf",
+  `C` = "cop-grow",
+  `D` = "cop-trans",
+  `E` = "fish-inf",
+  `F` = "fish-grow",
+  `G` = "fish-grow2",
+  `H` = "fish-trans",
+  `I` = "bird-inf",
+  `L` = "bird-repr"
+)
+
 ggplot(DE_each_group%>%
          filter(!is.na(padj))%>%
          mutate(padj = if_else(padj < 1e-60, 1e-60, padj)), 
@@ -461,7 +474,8 @@ ggplot(DE_each_group%>%
   geom_point(alpha = 0.1) +
   scale_y_continuous(trans = reverselog_trans(10)) +
   scale_x_continuous(limits = c(-10,10)) +
-  facet_wrap(~condition, nrow = 2) +
+  facet_wrap(~condition, nrow = 2,
+             labeller = labeller(condition = cond_labs)) +
   guides(color = guide_legend(override.aes = list(alpha = 1))) +
   theme(panel.grid.minor = element_blank())
 ```
@@ -532,7 +546,7 @@ ggplot(DE_comparing_contrasts, aes(lfc, lfc2)) +
   geom_abline() +
   geom_smooth(method = lm, se = F, linetype = "dashed") +
   labs(x = "LfC, unadjusted", y = "LfC, adjusted") +
-  facet_wrap(~condition) +
+  facet_wrap(~condition, labeller = labeller(condition = cond_labs)) +
   coord_cartesian(xlim = c(-10,10), ylim = c(-10,10) )
 ```
 
@@ -1240,7 +1254,14 @@ DE_spear_long_plot <- DE_spear_long_out%>%
     term %in% c("C", "F", "G") & cond %in% c("C", "F", "G") ~ "function: growth",
     term %in% c("D", "H") & cond %in% c("D", "H") ~ "function: transmission",
     !is.na(pair) ~ "non-consecutive")
-    )
+    )%>%
+  mutate(lab_comb2 = case_when(
+    grepl(func_grp, pattern = "function") ~ paste0("*",lab_comb,"*"),
+    !grepl(func_grp, pattern = "function") ~ lab_comb)
+    )%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb2 = fct_inorder(lab_comb2))
+
 DE_spear_long_plot <- DE_spear_long_plot%>%
   left_join(., 
             DE_pairwise_mat_plot2%>%
@@ -1248,22 +1269,114 @@ DE_spear_long_plot <- DE_spear_long_plot%>%
               mutate(pair = paste0(term, "_", cond))%>%
               select(pair, obs_spearman = shared_prop))
 ```
+```{r}
+# combine pairwise spearman cors with data on time differences between stages
+ss_dat_time <- SScolData%>%
+  mutate(Condition = gsub("Condition", "", Condition),
+         Time = gsub(",", ".", Time))%>%
+  mutate(Time = as.numeric(Time))%>%
+  select(Condition, Time)%>%
+  distinct()%>%
+  left_join(., 
+            data.frame(lab = x_ax_lab, Condition = c("A", "B", "C", "D", "E", "F", "G", "H", "I", "L")))
+
+DE_spear_long_plotX <- left_join(
+  DE_spear_long_plot,
+  ss_dat_time%>%rename(time1 = Time,
+                       lab1 = lab),
+  by = c("term" = "Condition")
+)%>%
+  left_join(
+  .,
+  ss_dat_time%>%rename(time2 = Time,
+                       lab2 = lab),
+  by = c("cond" = "Condition")
+)%>%
+  mutate(time_diff = time2 - time1,
+         lab_comb = paste0(lab1, ":", lab2))%>%
+  mutate(lab_comb2 = case_when(
+    grepl(func_grp, pattern = "function") ~ paste0("*",lab_comb,"*"),
+    !grepl(func_grp, pattern = "function") ~ lab_comb)
+    )%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb2 = fct_inorder(lab_comb2))
+```
 
 Here is another way to plot the results. The bars show the median and 95% CI for "random" pairwise correlations. These permuted values often overlap zero, but definitely skew negative. The colored data points are the observed relationships and pairs are ordered by whether they are consecutive life stages, functionally similar but different hosts, or non-consecutive. Consecutive life stages tend to have similar expression (more positive than expected by chance, though there are some interesting exceptions). The functionally similar stages are not more similar than expected by chance, but they are also not more different than expected. The remaining correlations are usually lower than expected - genes upregulated in one stage are downregulated at other parts of the cycle - but the patterns are not pronounced, i.e. negative correlations were not greater than expected by chance.
 
 ```{r}
-DE_spear_long_plot%>%
-  arrange(func_grp)%>%
-  mutate(pair = fct_inorder(pair))%>%
-  ggplot(., aes(x = pair, y = med_rho)) + 
+DE_spear_long_plotX%>%
+  ggplot(., aes(x = lab_comb2, y = med_rho)) + 
   geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
-  geom_point(aes(x = pair, y = obs_spearman, color = func_grp),
+  geom_point(aes(x = lab_comb2, y = obs_spearman, color = func_grp),
+             shape = 15, size = 2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  coord_flip() + 
+  scale_x_discrete(limits = rev) +
+  labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0)) +
+  facet_grid(rows = vars(func_grp),
+             scales = "free_y",
+             space = "free")
+```
+
+In the above plot, pairs are ordered by the type of comparison, starting with consecutive stages. Alternatively, we can order the correlations by the amount of time (days) that passes between stage sampling.
+
+Here is that plot. Pairs of life stages at the top, which were sometimes sampled within minutes or hours of each other, tend to have similar gene expression (positive correlations), whereas pairs at the bottom, which were sampled weeks or months apart, tend to have more different gene expression (negative correlations).
+
+```{r}
+DE_spear_long_plotX%>%
+  arrange(time_diff)%>%
+  mutate(lab_comb = fct_inorder(lab_comb))%>%
+  ggplot(., aes(x = lab_comb, y = med_rho)) + 
+  geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
+  geom_point(aes(x = lab_comb, y = obs_spearman, color = func_grp),
              shape = 15, size = 2) +
   geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
   coord_flip() + 
   scale_x_discrete(limits = rev) +
   labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
   theme(panel.grid.major.y = element_blank())
+```
+
+This can also be seen in a bivariate plot of the time between sampling vs the spearman cor coefficient. Stages sampled temporally close together have higher correlations than those sampled further apart. But some pairs of stages have relatively higher or lower similarity (positive or negative residuals) than expected, and they are labelled.
+
+```{r}
+DE_spear_long_plotX%>%
+  mutate(res_time_v_cor = residuals(lm(obs_spearman~time_diff, data = DE_spear_long_plotX)))%>%
+  ggplot(., aes(time_diff, obs_spearman)) +
+  geom_smooth(method = lm, se = F) +
+  geom_point(aes(color = func_grp)) +
+  geom_label(data = .%>%
+               slice_max(res_time_v_cor, n = 7),
+             aes(label = lab_comb, color = func_grp), size = 2) +
+  geom_label(data = .%>%
+               slice_min(res_time_v_cor, n = 7),
+             aes(label = lab_comb, color = func_grp), size = 2) +
+  labs(x = "Time diff (days)", y = "Spearman cor coef")
+```
+
+Ordering pairs by time elapsed between them results in stages being mixed along the axis. That is, the ordering of the pairs no longer follows the chrnology of the life cycle. An alternative is to separate the pairs by life stage and to order them chronologically within life stages. Here is that plot:
+
+```{r}
+DE_spear_long_plotX%>%
+  mutate(lab1 = fct_inorder(lab1),
+         lab_comb = fct_inorder(lab_comb))%>%
+  ggplot(., aes(x = lab_comb, y = med_rho)) + 
+  geom_pointrange(aes(ymin = lwr_rho, ymax = upr_rho), shape = 3) +
+  geom_point(aes(x = lab_comb, y = obs_spearman, color = func_grp),
+             shape = 15, size = 2) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  coord_flip() + 
+  scale_x_discrete(limits = rev) +
+  labs(x = NULL, y = "Spearman correlation", color = "Pair Type") +
+  theme(panel.grid.major.y = element_blank(),
+        strip.text = element_blank()) +
+  facet_grid(rows = vars(lab1),
+             scales = "free_y",
+             space = "free_y")
 ```
 
 Here are whether observed spearman correlations were greater or less than expected, by group.
