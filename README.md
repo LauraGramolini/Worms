@@ -1,6 +1,10 @@
-# Schistocephalus
+# WORMS
 
-Analysis pipelines, scripts, and resources for studying gene expression and life-stage decoupling in the tapeworm *Schistocephalus solidus*.
+This is part of my PhD project, which involved originally 2 helminth species for the study of comple life cycles.
+*Camallanus lacustris* and *Schistocephalus solidus*.
+In the Copepod folder, analyses related to the first host of both.
+
+In the Schistocephalus folder: analysis pipelines, scripts, and resources for studying gene expression and life-stage decoupling in the tapeworm *Schistocephalus solidus*.
 
 Repository: [LauraGramolini/Worms – Schistocephalus directory](https://github.com/LauraGramolini/Worms/tree/master/Schistocephalus?utm_source=chatgpt.com)
 
