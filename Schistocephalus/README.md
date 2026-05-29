@@ -51,13 +51,9 @@ Example structure (may vary slightly depending on updates):
 
 Schistocephalus/
 │
-├── scripts/
+├── Bash_scripts/
+├── R/
 ├── data/
-├── results/
-├── figures/
-├── GO_analysis/
-├── DE_analysis/
-├── metadata/
 └── README.md
 
 ```
