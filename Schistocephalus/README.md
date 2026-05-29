@@ -165,15 +165,6 @@ Relevant genomic resources include:
 
 ---
 
-## Related Publications
-
-Relevant background studies include:
-
-* Hébert et al. (2017) — transcriptome-wide reprogramming across host transitions
-* Herrig et al. (2021) — adaptive decoupling hypothesis in transcriptomics
-* Moran (1994) — adaptation and constraint in complex life cycles
-
----
 
 ## Citation
 
