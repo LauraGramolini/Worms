@@ -49,6 +49,17 @@ Example structure (may vary slightly depending on updates):
 
 ```text
 
+Schistocephalus/
+│
+├── scripts/
+├── data/
+├── results/
+├── figures/
+├── GO_analysis/
+├── DE_analysis/
+├── metadata/
+└── README.md
+
 ```
 
 ---
